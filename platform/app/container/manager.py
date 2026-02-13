@@ -6,7 +6,7 @@ import secrets
 from pathlib import Path
 
 import docker
-from docker.errors import NotFound as DockerNotFound
+from docker.errors import APIError as DockerAPIError, NotFound as DockerNotFound
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -53,17 +53,27 @@ async def create_container(db: AsyncSession, user_id: str) -> Container:
 
     container_token = secrets.token_urlsafe(32)
 
-    # Host directory for user data persistence
-    user_data = Path(settings.container_data_dir) / user_id
-    workspace_dir = user_data / "workspace"
-    sessions_dir = user_data / "sessions"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    sessions_dir.mkdir(parents=True, exist_ok=True)
+    # Use Docker named volumes for user data persistence.
+    # Named volumes work on all platforms (Linux, macOS Docker Desktop)
+    # without needing file-sharing configuration.
+    short_id = user_id[:8]
+    workspace_vol = f"nanobot-workspace-{short_id}"
+    sessions_vol = f"nanobot-sessions-{short_id}"
+
+    container_name = f"nanobot-user-{short_id}"
+
+    # Remove any stale container with the same name (e.g. from a previous
+    # failed creation attempt that never got recorded in the DB).
+    try:
+        stale = client.containers.get(container_name)
+        stale.remove(force=True)
+    except DockerNotFound:
+        pass
 
     docker_container = client.containers.run(
         image=settings.nanobot_image,
         command=["web", "--port", "18080", "--host", "0.0.0.0"],
-        name=f"nanobot-user-{user_id[:8]}",
+        name=container_name,
         detach=True,
         environment={
             "NANOBOT_PROXY__URL": f"http://gateway:8080/llm/v1",
@@ -71,10 +81,10 @@ async def create_container(db: AsyncSession, user_id: str) -> Container:
             "NANOBOT_AGENTS__DEFAULTS__MODEL": settings.default_model,
             # No API keys here — they stay on the platform side
         },
-        volumes={
-            str(workspace_dir): {"bind": "/root/.nanobot/workspace", "mode": "rw"},
-            str(sessions_dir): {"bind": "/root/.nanobot/sessions", "mode": "rw"},
-        },
+        mounts=[
+            docker.types.Mount("/root/.nanobot/workspace", workspace_vol, type="volume"),
+            docker.types.Mount("/root/.nanobot/sessions", sessions_vol, type="volume"),
+        ],
         network=settings.container_network,
         mem_limit=settings.container_memory_limit,
         nano_cpus=int(settings.container_cpu_limit * 1e9),

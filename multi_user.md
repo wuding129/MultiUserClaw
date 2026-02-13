@@ -390,3 +390,19 @@
   - 用户容器 仅收到 NANOBOT_PROXY__URL 和 NANOBOT_PROXY__TOKEN（无法反推出 API Key）
   - Docker 网络 nanobot-internal 设为 internal: true，容器无法直连外网 LLM 端点
   - 即使用户在容器内执行 env、cat ~/.nanobot/config.json，也看不到任何 LLM API Key
+
+
+# 操作
+## 创建nanobot的容器
+docker build -t nanobot:latest .
+
+## 启动gateway和web端，web端供用户访问，gateway给每个用户创建nanobot容器
+docker compose build --no-cache frontend && docker compose up -d 
+docker compose build --no-cache gateway && docker compose up -d
+docker compose logs -f 
+docker compose down
+
+
+# 删除用户创建的容器
+docker ps -a --filter "name=nanobot-user-" --format "{{.Names}}" 2>&1
+docker rm -f nanobot-user-9abeea27 2>&1
