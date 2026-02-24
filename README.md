@@ -227,8 +227,19 @@ nanobot agent -m 'hello'
 # 交互式聊天
 nanobot agent
 
-# Web 界面（后端 + 前端）
+# Web 界面（后端 + 数据库+ 管理容器的API端 + 前端）
 nanobot web                      # 后端，默认端口 18080
+docker run -d \
+  --name postgres \
+  -e POSTGRES_USER=nanobot \
+  -e POSTGRES_PASSWORD=nanobot \
+  -e POSTGRES_DB=nanobot_platform \
+  -v pgdata:/var/lib/postgresql/data \
+  -p 5432:5432 \
+  postgres:16-alpine
+cd platform
+export PLATFORM_DATABASE_URL="postgresql+asyncpg://nanobot:nanobot@localhost:5432/nanobot_platform"
+python -m app.main
 cd frontend && npm run dev       # 前端，默认端口 3000
 ```
 
