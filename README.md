@@ -58,7 +58,7 @@
 ### 1.1 架构
 
 ```
-浏览器 ──► frontend:3000 ──(JS请求)──► gateway:8080 ──► 用户容器(nanobot)
+浏览器 ──► frontend:3000 ──(JS请求)──► gateway（platform项目):8080 ──► 用户容器(nanobot)
                                             ↕                   ↓
                                        postgres:5432      gateway/llm/v1
                                        (用户/配额)         (注入API Key)
@@ -127,7 +127,7 @@ JWT_SECRET=your-secure-random-string
 
 Gateway 根据模型名自动匹配提供商并注入对应的 API Key，用户容器内不存储任何密钥。
 
-### 1.5 构建与启动
+### 1.5 推荐Docker构建与启动
 
 ```bash
 # 1. 构建 nanobot 基础镜像（用户容器使用）
@@ -152,7 +152,7 @@ docker compose logs -f
 
 ### 1.6 使用
 
-1. 打开浏览器访问 `http://localhost:3000`
+1. 打开浏览器访问 `http://localhost:3080`
 2. 注册账号并登录
 3. 开始聊天 — Gateway 会自动为你创建隔离的 nanobot 容器
 
