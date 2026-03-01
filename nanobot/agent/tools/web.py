@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from nanobot.agent.tools.base import Tool
-from nanobot.agent.tools.weixin_search import get_wechat_article
+from nanobot.agent.tools.xng_search import search
 
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
@@ -63,7 +63,7 @@ class WebSearchTool(Tool):
     
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
         try:
-            data = get_wechat_article(query=query,number=count)
+            data = search(query=query,num_results=count)
             result = ""
             for idx, item in enumerate(data):
                 for key, value in item.items():

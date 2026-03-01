@@ -16,7 +16,7 @@
     - 不需要 api_key，改用 X-Container-Token（一个一次性 token，仅用于标识容器身份，不含任何 LLM 密钥信息）
   - 改造 nanobot/config/schema.py：增加is_proxy_mode的配置
   - nanobot/web 新增Web目录
-  - nanobot/agent/tools下的web.py新增get_wechat_article使用文件weixin_search.py
+  - nanobot/agent/tools下的web.py新增get_wechat_article使用文件xng_search.py
   - nanobot/cli/commands.py 新增if config.is_proxy_mode检测
   - nanobot/channels/manager.py 启动web端管理
   - 新增platform作为控制容器的网关，每个用户单独创建容器进行管理

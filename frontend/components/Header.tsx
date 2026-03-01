@@ -11,8 +11,8 @@ const NAV_ITEMS = [
   { name: '对话', href: '/', icon: MessageSquare },
   { name: '状态', href: '/status', icon: Activity },
   { name: '定时任务', href: '/cron', icon: Clock },
-  { name: '技能', href: '/skills', icon: Puzzle },
-  { name: '插件', href: '/plugins', icon: Blocks },
+  { name: 'skills', href: '/skills', icon: Puzzle },
+  { name: 'plugins', href: '/plugins', icon: Blocks },
   { name: '文件', href: '/files', icon: FolderOpen },
   { name: '帮助', href: '/help', icon: HelpCircle },
 ];
