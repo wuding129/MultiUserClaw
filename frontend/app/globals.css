@@ -80,3 +80,43 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Override Tailwind Typography table defaults for markdown rendering */
+.prose table {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.prose thead th {
+  padding: 0;
+  vertical-align: middle;
+}
+
+.prose tbody td {
+  padding: 0;
+  vertical-align: middle;
+}
+
+.prose thead {
+  border-bottom: none;
+}
+
+.prose tbody tr {
+  border-bottom: none;
+}
+
+.prose :where(thead th:first-child) {
+  padding-inline-start: 0;
+}
+
+.prose :where(thead th:last-child) {
+  padding-inline-end: 0;
+}
+
+.prose :where(tbody td:first-child, tfoot td:first-child) {
+  padding-inline-start: 0;
+}
+
+.prose :where(tbody td:last-child, tfoot td:last-child) {
+  padding-inline-end: 0;
+}

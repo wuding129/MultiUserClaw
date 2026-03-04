@@ -862,6 +862,22 @@ def _register_routes(app: FastAPI) -> None:
                     "argument_hint": cmd.argument_hint,
                     "plugin_name": cmd.plugin_name,
                 })
+
+        # Add skills (skip name collisions with plugin commands)
+        from nanobot.agent.skills import SkillsLoader
+
+        plugin_cmd_names = {cmd.name for p in loader.plugins.values() for cmd in p.commands.values()}
+        extra_dirs = loader.get_skill_dirs()
+        skills_loader = SkillsLoader(config.workspace_path, extra_dirs=extra_dirs)
+        for s in skills_loader.list_skills(filter_unavailable=True):
+            if s["name"] not in plugin_cmd_names and s["name"] not in {"new", "help"}:
+                commands.append({
+                    "name": s["name"],
+                    "description": skills_loader._get_skill_description(s["name"]),
+                    "argument_hint": None,
+                    "plugin_name": "skill",
+                })
+
         return commands
 
     # ------ Marketplace ------

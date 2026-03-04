@@ -20,6 +20,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 
 from nanobot import __version__, __logo__
 from nanobot.config.schema import Config
+from nanobot.utils.helpers import sync_workspace_templates
 
 app = typer.Typer(
     name="nanobot",
@@ -185,8 +186,7 @@ def onboard():
         workspace.mkdir(parents=True, exist_ok=True)
         console.print(f"[green]✓[/green] Created workspace at {workspace}")
     
-    # Create default bootstrap files
-    _create_workspace_templates(workspace)
+    sync_workspace_templates(workspace)
     
     console.print(f"\n{__logo__} nanobot is ready!")
     console.print("\nNext steps:")
@@ -197,36 +197,6 @@ def onboard():
 
 
 
-
-def _create_workspace_templates(workspace: Path):
-    """Create default workspace template files from bundled templates."""
-    from importlib.resources import files as pkg_files
-
-    templates_dir = pkg_files("nanobot") / "templates"
-
-    for item in templates_dir.iterdir():
-        if not item.name.endswith(".md"):
-            continue
-        dest = workspace / item.name
-        if not dest.exists():
-            dest.write_text(item.read_text(encoding="utf-8"), encoding="utf-8")
-            console.print(f"  [dim]Created {item.name}[/dim]")
-
-    memory_dir = workspace / "memory"
-    memory_dir.mkdir(exist_ok=True)
-
-    memory_template = templates_dir / "memory" / "MEMORY.md"
-    memory_file = memory_dir / "MEMORY.md"
-    if not memory_file.exists():
-        memory_file.write_text(memory_template.read_text(encoding="utf-8"), encoding="utf-8")
-        console.print("  [dim]Created memory/MEMORY.md[/dim]")
-
-    history_file = memory_dir / "HISTORY.md"
-    if not history_file.exists():
-        history_file.write_text("", encoding="utf-8")
-        console.print("  [dim]Created memory/HISTORY.md[/dim]")
-
-    (workspace / "skills").mkdir(exist_ok=True)
 
 
 def _make_provider(config: Config):
@@ -250,13 +220,15 @@ def _make_provider(config: Config):
             api_base=config.get_api_base(model) or "http://localhost:8000/v1",
             default_model=model,
         )
-    # 添加容器自定义中的代理模式，代理用户容器访问
+
     if config.is_proxy_mode:
+        from nanobot.providers.litellm_provider import LiteLLMProvider
         return LiteLLMProvider(
             default_model=model,
             proxy_url=config.proxy.url,
             proxy_token=config.proxy.token,
         )
+
     from nanobot.providers.registry import find_by_name
     spec = find_by_name(provider_name)
     if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
@@ -300,6 +272,7 @@ def gateway(
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     
     config = load_config()
+    sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
@@ -318,6 +291,7 @@ def gateway(
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
+        reasoning_effort=config.agents.defaults.reasoning_effort,
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
@@ -366,19 +340,19 @@ def gateway(
         return "cli", "direct"
 
     # Create heartbeat service
-    async def on_heartbeat(prompt: str) -> str:
-        """Execute heartbeat through the agent."""
+    async def on_heartbeat_execute(tasks: str) -> str:
+        """Phase 2: execute heartbeat tasks through the full agent loop."""
         channel, chat_id = _pick_heartbeat_target()
 
         async def _silent(*_args, **_kwargs):
             pass
 
         return await agent.process_direct(
-            prompt,
+            tasks,
             session_key="heartbeat",
             channel=channel,
             chat_id=chat_id,
-            on_progress=_silent,  # suppress: heartbeat should not push progress to external channels
+            on_progress=_silent,
         )
 
     async def on_heartbeat_notify(response: str) -> None:
@@ -389,12 +363,15 @@ def gateway(
             return  # No external channel available to deliver to
         await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
 
+    hb_cfg = config.gateway.heartbeat
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
-        on_heartbeat=on_heartbeat,
+        provider=provider,
+        model=agent.model,
+        on_execute=on_heartbeat_execute,
         on_notify=on_heartbeat_notify,
-        interval_s=30 * 60,  # 30 minutes
-        enabled=True
+        interval_s=hb_cfg.interval_s,
+        enabled=hb_cfg.enabled,
     )
     
     if channels.enabled_channels:
@@ -406,7 +383,7 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
     
-    console.print(f"[green]✓[/green] Heartbeat: every 30m")
+    console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
     
     async def run():
         try:
@@ -428,9 +405,6 @@ def gateway(
     asyncio.run(run())
 
 
-# ============================================================================
-# Web UI
-# ============================================================================
 
 
 @app.command()
@@ -505,19 +479,51 @@ def web(
         return response
     cron.on_job = on_cron_job
 
-    # Heartbeat
-    async def on_heartbeat(prompt: str) -> str:
-        return await agent.process_direct(prompt, session_key="heartbeat")
-
-    heartbeat = HeartbeatService(
-        workspace=config.workspace_path,
-        on_heartbeat=on_heartbeat,
-        interval_s=30 * 60,
-        enabled=True,
-    )
-
     # Channel manager (web channel will be created here since we set enabled=True)
     channels = ChannelManager(config, bus, session_manager=session_manager, cron_service=cron)
+
+    def _pick_heartbeat_target() -> tuple[str, str]:
+        """Pick a routable channel/chat target for heartbeat-triggered messages."""
+        enabled = set(channels.enabled_channels)
+        for item in session_manager.list_sessions():
+            key = item.get("key") or ""
+            if ":" not in key:
+                continue
+            channel, chat_id = key.split(":", 1)
+            if channel in {"cli", "system"}:
+                continue
+            if channel in enabled and chat_id:
+                return channel, chat_id
+        return "web", "direct"
+
+    # Heartbeat
+    async def on_heartbeat_execute(tasks: str) -> str:
+        channel, chat_id = _pick_heartbeat_target()
+        async def _silent(*_args, **_kwargs):
+            pass
+        return await agent.process_direct(
+            tasks,
+            session_key="heartbeat",
+            channel=channel,
+            chat_id=chat_id,
+            on_progress=_silent,
+        )
+
+    async def on_heartbeat_notify(response: str) -> None:
+        from nanobot.bus.events import OutboundMessage
+        channel, chat_id = _pick_heartbeat_target()
+        await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
+
+    hb_cfg = config.gateway.heartbeat
+    heartbeat = HeartbeatService(
+        workspace=config.workspace_path,
+        provider=provider,
+        model=agent.model,
+        on_execute=on_heartbeat_execute,
+        on_notify=on_heartbeat_notify,
+        interval_s=hb_cfg.interval_s,
+        enabled=True,
+    )
 
     if channels.enabled_channels:
         console.print(f"[green]✓[/green] Channels enabled: {', '.join(channels.enabled_channels)}")
@@ -526,7 +532,7 @@ def web(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
-    console.print(f"[green]✓[/green] Heartbeat: every 30m")
+    console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
 
     async def run():
         try:
@@ -544,6 +550,7 @@ def web(
             await channels.stop_all()
 
     asyncio.run(run())
+
 
 
 
@@ -569,6 +576,7 @@ def agent(
     from loguru import logger
     
     config = load_config()
+    sync_workspace_templates(config.workspace_path)
     
     bus = MessageBus()
     provider = _make_provider(config)
@@ -591,6 +599,7 @@ def agent(
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
+        reasoning_effort=config.agents.defaults.reasoning_effort,
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         cron_service=cron,
@@ -1082,6 +1091,7 @@ def cron_run(
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
         memory_window=config.agents.defaults.memory_window,
+        reasoning_effort=config.agents.defaults.reasoning_effort,
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,

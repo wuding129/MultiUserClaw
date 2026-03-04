@@ -3,67 +3,47 @@
 import base64
 import mimetypes
 import platform
+import time
+from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.plugins import PluginLoader
 from nanobot.agent.skills import SkillsLoader
-
-if TYPE_CHECKING:
-    from nanobot.agent.plugins import PluginLoader
 
 
 class ContextBuilder:
-    """
-    Builds the context (system prompt + messages) for the agent.
-
-    Assembles bootstrap files, memory, skills, plugins, and conversation history
-    into a coherent prompt for the LLM.
-    """
-
+    """Builds the context (system prompt + messages) for the agent."""
+    
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
-
-    def __init__(self, workspace: Path, plugin_loader: "PluginLoader | None" = None):
+    _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
+    
+    def __init__(self, workspace: Path):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
-        self.plugin_loader = plugin_loader
-        extra_dirs = plugin_loader.get_skill_dirs() if plugin_loader else []
-        self.skills = SkillsLoader(workspace, extra_dirs=extra_dirs)
+        self.plugins = PluginLoader(workspace)
+        extra_skill_dirs = self.plugins.get_skill_dirs()
+        self.skills = SkillsLoader(workspace, extra_dirs=extra_skill_dirs)
     
     def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
-        """
-        Build the system prompt from bootstrap files, memory, and skills.
-        
-        Args:
-            skill_names: Optional list of skills to include.
-        
-        Returns:
-            Complete system prompt.
-        """
-        parts = []
-        
-        # Core identity
-        parts.append(self._get_identity())
-        
-        # Bootstrap files
+        """Build the system prompt from identity, bootstrap files, memory, and skills."""
+        parts = [self._get_identity()]
+
         bootstrap = self._load_bootstrap_files()
         if bootstrap:
             parts.append(bootstrap)
-        
-        # Memory context
+
         memory = self.memory.get_memory_context()
         if memory:
             parts.append(f"# Memory\n\n{memory}")
-        
-        # Skills - progressive loading
-        # 1. Always-loaded skills: include full content
+
         always_skills = self.skills.get_always_skills()
         if always_skills:
             always_content = self.skills.load_skills_for_context(always_skills)
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
-        
-        # 2. Available skills: only show summary (agent uses read_file to load)
+
         skills_summary = self.skills.build_skills_summary()
         if skills_summary:
             parts.append(f"""# Skills
@@ -73,60 +53,63 @@ Skills with available="false" need dependencies installed first - you can try in
 
 {skills_summary}""")
 
-        # Plugins: agents and commands
-        if self.plugin_loader:
-            agents_summary = self.plugin_loader.build_agents_summary()
-            commands_summary = self.plugin_loader.build_commands_summary()
-            if agents_summary or commands_summary:
-                plugin_lines = ["# Plugins", "", "The following plugin agents and commands are available:"]
-                if agents_summary:
-                    plugin_lines.append("")
-                    plugin_lines.append(agents_summary)
-                if commands_summary:
-                    plugin_lines.append("")
-                    plugin_lines.append(commands_summary)
-                parts.append("\n".join(plugin_lines))
+        # Plugin agents and commands
+        agents_summary = self.plugins.build_agents_summary()
+        if agents_summary:
+            parts.append(f"""# Plugin Agents
+
+The following plugin agents are available. When the user's request matches an agent's specialty,
+you can delegate to them using the spawn tool.
+
+{agents_summary}""")
+
+        commands_summary = self.plugins.build_commands_summary()
+        if commands_summary:
+            parts.append(f"""# Plugin Commands
+
+The following slash commands are provided by plugins. Users can invoke them with /<command-name>.
+
+{commands_summary}""")
 
         return "\n\n---\n\n".join(parts)
     
     def _get_identity(self) -> str:
         """Get the core identity section."""
-        from datetime import datetime
-        import time as _time
-        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
-        tz = _time.strftime("%Z") or "UTC"
         workspace_path = str(self.workspace.expanduser().resolve())
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
         
         return f"""# nanobot 🐈
 
-You are nanobot, a helpful AI assistant. 
-
-## Current Time
-{now} ({tz})
+You are nanobot, a helpful AI assistant.
 
 ## Runtime
 {runtime}
 
 ## Workspace
 Your workspace is at: {workspace_path}
-- Long-term memory: {workspace_path}/memory/MEMORY.md
-- History log: {workspace_path}/memory/HISTORY.md (grep-searchable)
+- Long-term memory: {workspace_path}/memory/MEMORY.md (write important facts here)
+- History log: {workspace_path}/memory/HISTORY.md (grep-searchable). Each entry starts with [YYYY-MM-DD HH:MM].
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 
-Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
-
-## Tool Call Guidelines
-- Before calling tools, you may briefly state your intent (e.g. "Let me check that"), but NEVER predict or describe the expected result before receiving it.
-- Before modifying a file, read it first to confirm its current content.
-- Do not assume a file or directory exists — use list_dir or read_file to verify.
+## nanobot Guidelines
+- State intent before tool calls, but NEVER predict or claim results before receiving them.
+- Before modifying a file, read it first. Do not assume files or directories exist.
 - After writing or editing a file, re-read it if accuracy matters.
 - If a tool call fails, analyze the error before retrying with a different approach.
+- Ask for clarification when the request is ambiguous.
 
-## Memory
-- Remember important facts: write to {workspace_path}/memory/MEMORY.md
-- Recall past events: grep {workspace_path}/memory/HISTORY.md"""
+Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
+
+    @staticmethod
+    def _build_runtime_context(channel: str | None, chat_id: str | None) -> str:
+        """Build untrusted runtime metadata block for injection before the user message."""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M (%A)")
+        tz = time.strftime("%Z") or "UTC"
+        lines = [f"Current Time: {now} ({tz})"]
+        if channel and chat_id:
+            lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
+        return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
     
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
@@ -149,113 +132,65 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         channel: str | None = None,
         chat_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Build the complete message list for an LLM call.
-
-        Args:
-            history: Previous conversation messages.
-            current_message: The new user message.
-            skill_names: Optional skills to include.
-            media: Optional list of local file paths for images/media.
-            channel: Current channel (telegram, feishu, etc.).
-            chat_id: Current chat/user ID.
-
-        Returns:
-            List of messages including system prompt.
-        """
-        messages = []
-
-        # System prompt
-        system_prompt = self.build_system_prompt(skill_names)
-        if channel and chat_id:
-            system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
-        messages.append({"role": "system", "content": system_prompt})
-
-        # History
-        messages.extend(history)
-
-        # Current message (with optional image attachments)
-        user_content = self._build_user_content(current_message, media)
-        messages.append({"role": "user", "content": user_content})
-
-        return messages
+        """Build the complete message list for an LLM call."""
+        return [
+            {"role": "system", "content": self.build_system_prompt(skill_names)},
+            *history,
+            {"role": "user", "content": self._build_runtime_context(channel, chat_id)},
+            {"role": "user", "content": self._build_user_content(current_message, media)},
+        ]
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
+        """Build user message content with optional base64-encoded images and file paths."""
         if not media:
             return text
         
         images = []
+        non_images = []
         for path in media:
             p = Path(path)
-            mime, _ = mimetypes.guess_type(path)
-            if not p.is_file() or not mime or not mime.startswith("image/"):
+            if not p.is_file():
                 continue
-            b64 = base64.b64encode(p.read_bytes()).decode()
-            images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+            mime, _ = mimetypes.guess_type(path)
+            if mime and mime.startswith("image/"):
+                try:
+                    b64 = base64.b64encode(p.read_bytes()).decode()
+                    images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+                except Exception:
+                    non_images.append(str(p.absolute()))
+            else:
+                non_images.append(str(p.absolute()))
         
+        if non_images:
+            attached_text = "[Attached file paths (use read_file or similar tools to read them)]:\n" + "\n".join(f"- {p}" for p in non_images)
+            text = f"{text}\n\n{attached_text}" if text else attached_text
+
         if not images:
             return text
         return images + [{"type": "text", "text": text}]
     
     def add_tool_result(
-        self,
-        messages: list[dict[str, Any]],
-        tool_call_id: str,
-        tool_name: str,
-        result: str
+        self, messages: list[dict[str, Any]],
+        tool_call_id: str, tool_name: str, result: str,
     ) -> list[dict[str, Any]]:
-        """
-        Add a tool result to the message list.
-        
-        Args:
-            messages: Current message list.
-            tool_call_id: ID of the tool call.
-            tool_name: Name of the tool.
-            result: Tool execution result.
-        
-        Returns:
-            Updated message list.
-        """
-        messages.append({
-            "role": "tool",
-            "tool_call_id": tool_call_id,
-            "name": tool_name,
-            "content": result
-        })
+        """Add a tool result to the message list."""
+        messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
         return messages
     
     def add_assistant_message(
-        self,
-        messages: list[dict[str, Any]],
+        self, messages: list[dict[str, Any]],
         content: str | None,
         tool_calls: list[dict[str, Any]] | None = None,
         reasoning_content: str | None = None,
+        thinking_blocks: list[dict] | None = None,
     ) -> list[dict[str, Any]]:
-        """
-        Add an assistant message to the message list.
-        
-        Args:
-            messages: Current message list.
-            content: Message content.
-            tool_calls: Optional tool calls.
-            reasoning_content: Thinking output (Kimi, DeepSeek-R1, etc.).
-        
-        Returns:
-            Updated message list.
-        """
-        msg: dict[str, Any] = {"role": "assistant"}
-
-        # Always include content — some providers (e.g. StepFun) reject
-        # assistant messages that omit the key entirely.
-        msg["content"] = content
-
+        """Add an assistant message to the message list."""
+        msg: dict[str, Any] = {"role": "assistant", "content": content}
         if tool_calls:
             msg["tool_calls"] = tool_calls
-
-        # Include reasoning content when provided (required by some thinking models)
         if reasoning_content is not None:
             msg["reasoning_content"] = reasoning_content
-
+        if thinking_blocks:
+            msg["thinking_blocks"] = thinking_blocks
         messages.append(msg)
         return messages

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from loguru import logger
 
@@ -12,34 +12,25 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
 
-if TYPE_CHECKING:
-    from nanobot.session.manager import SessionManager
-
 
 class ChannelManager:
     """
     Manages chat channels and coordinates message routing.
-
+    
     Responsibilities:
     - Initialize enabled channels (Telegram, WhatsApp, etc.)
     - Start/stop channels
     - Route outbound messages
     """
-
-    def __init__(
-        self,
-        config: Config,
-        bus: MessageBus,
-        session_manager: "SessionManager | None" = None,
-        cron_service: Any = None,
-    ):
+    
+    def __init__(self, config: Config, bus: MessageBus, session_manager: Any = None, cron_service: Any = None):
         self.config = config
         self.bus = bus
         self.session_manager = session_manager
         self.cron_service = cron_service
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
-
+        
         self._init_channels()
     
     def _init_channels(self) -> None:
@@ -147,6 +138,19 @@ class ChannelManager:
                 logger.info("QQ channel enabled")
             except ImportError as e:
                 logger.warning("QQ channel not available: {}", e)
+        
+        # Matrix channel
+        if self.config.channels.matrix.enabled:
+            try:
+                from nanobot.channels.matrix import MatrixChannel
+                self.channels["matrix"] = MatrixChannel(
+                    self.config.channels.matrix,
+                    self.bus,
+                )
+                logger.info("Matrix channel enabled")
+            except ImportError as e:
+                logger.warning("Matrix channel not available: {}", e)
+    
 
         # Web channel
         if self.config.channels.web.enabled:

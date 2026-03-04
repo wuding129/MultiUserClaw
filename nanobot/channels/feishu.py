@@ -89,8 +89,9 @@ def _extract_interactive_content(content: dict) -> list[str]:
         elif isinstance(title, str):
             parts.append(f"title: {title}")
 
-    for element in content.get("elements", []) if isinstance(content.get("elements"), list) else []:
-        parts.extend(_extract_element_content(element))
+    for elements in content.get("elements", []) if isinstance(content.get("elements"), list) else []:
+        for element in elements:
+            parts.extend(_extract_element_content(element))
 
     card = content.get("card", {})
     if card:
@@ -180,21 +181,25 @@ def _extract_element_content(element: dict) -> list[str]:
     return parts
 
 
-def _extract_post_text(content_json: dict) -> str:
-    """Extract plain text from Feishu post (rich text) message content.
+def _extract_post_content(content_json: dict) -> tuple[str, list[str]]:
+    """Extract text and image keys from Feishu post (rich text) message content.
     
     Supports two formats:
     1. Direct format: {"title": "...", "content": [...]}
     2. Localized format: {"zh_cn": {"title": "...", "content": [...]}}
+    
+    Returns:
+        (text, image_keys) - extracted text and list of image keys
     """
-    def extract_from_lang(lang_content: dict) -> str | None:
+    def extract_from_lang(lang_content: dict) -> tuple[str | None, list[str]]:
         if not isinstance(lang_content, dict):
-            return None
+            return None, []
         title = lang_content.get("title", "")
         content_blocks = lang_content.get("content", [])
         if not isinstance(content_blocks, list):
-            return None
+            return None, []
         text_parts = []
+        image_keys = []
         if title:
             text_parts.append(title)
         for block in content_blocks:
@@ -209,22 +214,36 @@ def _extract_post_text(content_json: dict) -> str:
                         text_parts.append(element.get("text", ""))
                     elif tag == "at":
                         text_parts.append(f"@{element.get('user_name', 'user')}")
-        return " ".join(text_parts).strip() if text_parts else None
+                    elif tag == "img":
+                        img_key = element.get("image_key")
+                        if img_key:
+                            image_keys.append(img_key)
+        text = " ".join(text_parts).strip() if text_parts else None
+        return text, image_keys
     
     # Try direct format first
     if "content" in content_json:
-        result = extract_from_lang(content_json)
-        if result:
-            return result
+        text, images = extract_from_lang(content_json)
+        if text or images:
+            return text or "", images
     
     # Try localized format
     for lang_key in ("zh_cn", "en_us", "ja_jp"):
         lang_content = content_json.get(lang_key)
-        result = extract_from_lang(lang_content)
-        if result:
-            return result
+        text, images = extract_from_lang(lang_content)
+        if text or images:
+            return text or "", images
     
-    return ""
+    return "", []
+
+
+def _extract_post_text(content_json: dict) -> str:
+    """Extract plain text from Feishu post (rich text) message content.
+    
+    Legacy wrapper for _extract_post_content, returns only text.
+    """
+    text, _ = _extract_post_content(content_json)
+    return text
 
 
 class FeishuChannel(BaseChannel):
@@ -307,13 +326,14 @@ class FeishuChannel(BaseChannel):
             await asyncio.sleep(1)
     
     async def stop(self) -> None:
-        """Stop the Feishu bot."""
+        """
+        Stop the Feishu bot.
+
+        Notice: lark.ws.Client does not expose stop method， simply exiting the program will close the client.
+
+        Reference: https://github.com/larksuite/oapi-sdk-python/blob/v2_main/lark_oapi/ws/client.py#L86
+        """
         self._running = False
-        if self._ws_client:
-            try:
-                self._ws_client.stop()
-            except Exception as e:
-                logger.warning("Error stopping WebSocket client: {}", e)
         logger.info("Feishu bot stopped")
     
     def _add_reaction_sync(self, message_id: str, emoji_type: str) -> None:
@@ -630,11 +650,22 @@ class FeishuChannel(BaseChannel):
                         )
 
             if msg.content and msg.content.strip():
-                card = {"config": {"wide_screen_mode": True}, "elements": self._build_card_elements(msg.content)}
-                await loop.run_in_executor(
-                    None, self._send_message_sync,
-                    receive_id_type, msg.chat_id, "interactive", json.dumps(card, ensure_ascii=False),
-                )
+                elements = self._build_card_elements(msg.content)
+                
+                # Send large content by splitting it up if necessary.
+                # Here we just chunk the elements into smaller cards to avoid limits.
+                # A single table can be large, but limit elements per card safely.
+                chunk_size = 5
+                for i in range(0, len(elements), chunk_size):
+                    chunk = elements[i:i + chunk_size]
+                    card = {
+                        "config": {"wide_screen_mode": True},
+                        "elements": chunk
+                    }
+                    await loop.run_in_executor(
+                        None, self._send_message_sync,
+                        receive_id_type, msg.chat_id, "interactive", json.dumps(card, ensure_ascii=False),
+                    )
 
         except Exception as e:
             logger.error("Error sending Feishu message: {}", e)
@@ -674,7 +705,7 @@ class FeishuChannel(BaseChannel):
             msg_type = message.message_type
 
             # Add reaction
-            await self._add_reaction(message_id, "THUMBSUP")
+            await self._add_reaction(message_id, self.config.react_emoji)
 
             # Parse content
             content_parts = []
@@ -691,9 +722,17 @@ class FeishuChannel(BaseChannel):
                     content_parts.append(text)
 
             elif msg_type == "post":
-                text = _extract_post_text(content_json)
+                text, image_keys = _extract_post_content(content_json)
                 if text:
                     content_parts.append(text)
+                # Download images embedded in post
+                for img_key in image_keys:
+                    file_path, content_text = await self._download_and_save_media(
+                        "image", {"image_key": img_key}, message_id
+                    )
+                    if file_path:
+                        media_paths.append(file_path)
+                    content_parts.append(content_text)
 
             elif msg_type in ("image", "audio", "file", "media"):
                 file_path, content_text = await self._download_and_save_media(msg_type, content_json, message_id)

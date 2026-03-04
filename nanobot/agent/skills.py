@@ -44,7 +44,7 @@ class SkillsLoader:
                     if skill_file.exists():
                         skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "workspace"})
         
-        # Plugin / extra_dirs skills (lower priority than workspace, higher than builtin)
+        # Extra dirs (plugin skills)
         for extra_dir in self.extra_dirs:
             if extra_dir.exists():
                 for skill_dir in extra_dir.iterdir():
@@ -80,12 +80,12 @@ class SkillsLoader:
         workspace_skill = self.workspace_skills / name / "SKILL.md"
         if workspace_skill.exists():
             return workspace_skill.read_text(encoding="utf-8")
-
-        # Check plugin / extra_dirs
+        
+        # Check extra dirs (plugin skills)
         for extra_dir in self.extra_dirs:
-            plugin_skill = extra_dir / name / "SKILL.md"
-            if plugin_skill.exists():
-                return plugin_skill.read_text(encoding="utf-8")
+            extra_skill = extra_dir / name / "SKILL.md"
+            if extra_skill.exists():
+                return extra_skill.read_text(encoding="utf-8")
 
         # Check built-in
         if self.builtin_skills:

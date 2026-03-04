@@ -183,13 +183,25 @@ class SessionManager:
         self._cache.pop(key, None)
 
     def delete(self, key: str) -> bool:
-        """Delete a session from disk and cache."""
-        path = self._get_session_path(key)
+        """Delete a session from cache and disk."""
         self.invalidate(key)
-        if path.exists():
-            path.unlink()
-            return True
-        return False
+        
+        path = self._get_session_path(key)
+        legacy_path = self._get_legacy_session_path(key)
+        
+        deleted = False
+        try:
+            if path.exists():
+                path.unlink()
+                deleted = True
+            
+            if legacy_path.exists():
+                legacy_path.unlink()
+                deleted = True
+        except Exception as e:
+            logger.error("Error deleting session {}: {}", key, e)
+            
+        return deleted
     
     def list_sessions(self) -> list[dict[str, Any]]:
         """

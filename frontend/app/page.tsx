@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Send,
   Plus,
@@ -72,7 +73,7 @@ export default function ChatPage() {
 
   // Load commands on mount
   useEffect(() => {
-    listCommands().then(setCommands).catch(() => {});
+    listCommands().then(setCommands).catch(() => { });
   }, []);
 
   // Show/reset picker when filtered list changes
@@ -359,11 +360,10 @@ export default function ChatPage() {
               <div
                 key={s.key}
                 onClick={() => handleSelectSession(s.key)}
-                className={`group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-sm ${
-                  s.key === sessionId
+                className={`group flex items-center justify-between px-2 py-1.5 rounded-md cursor-pointer text-sm ${s.key === sessionId
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-accent/50'
-                }`}
+                  }`}
               >
                 <div className="flex items-center gap-2 truncate">
                   <MessageSquare className="w-3.5 h-3.5 flex-shrink-0" />
@@ -403,12 +403,12 @@ export default function ChatPage() {
               (isLoading &&
                 messages.length > 0 &&
                 messages[messages.length - 1]?.role === 'user')) && (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Bot className="w-5 h-5" />
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span className="text-sm">思考中...</span>
-              </div>
-            )}
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Bot className="w-5 h-5" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">思考中...</span>
+                </div>
+              )}
 
             <div ref={messagesEndRef} />
           </div>
@@ -464,11 +464,10 @@ export default function ChatPage() {
                   {filteredCommands.map((cmd, i) => (
                     <button
                       key={cmd.name}
-                      className={`w-full text-left px-3 py-2 flex items-center gap-2 text-sm transition-colors ${
-                        i === pickerIndex
+                      className={`w-full text-left px-3 py-2 flex items-center gap-2 text-sm transition-colors ${i === pickerIndex
                           ? 'bg-accent text-accent-foreground'
                           : 'hover:bg-accent/50 text-foreground'
-                      }`}
+                        }`}
                       onMouseDown={(e) => {
                         e.preventDefault();
                         selectCommand(cmd);
@@ -487,7 +486,11 @@ export default function ChatPage() {
                         {cmd.description}
                       </span>
                       {cmd.plugin_name !== 'builtin' && (
-                        <span className="text-xs bg-muted px-1 rounded shrink-0">
+                        <span className={`text-xs px-1 rounded shrink-0 ${
+                          cmd.plugin_name === 'skill'
+                            ? 'bg-blue-500/10 text-blue-500'
+                            : 'bg-muted'
+                        }`}>
                           {cmd.plugin_name}
                         </span>
                       )}
@@ -563,7 +566,7 @@ function AuthImage({ src, alt, className }: { src: string; alt: string; classNam
         revoke = URL.createObjectURL(blob);
         setBlobUrl(revoke);
       })
-      .catch(() => {});
+      .catch(() => { });
 
     return () => {
       if (revoke) URL.revokeObjectURL(revoke);
@@ -582,6 +585,15 @@ function MessageBubble({
   isStreaming?: boolean;
 }) {
   const isUser = message.role === 'user';
+  
+  const extractText = (content: any) => {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content.map(c => c.text || '').join('\n');
+    }
+    return String(content || '');
+  };
+  const textContent = extractText(message.content);
 
   return (
     <div className={`flex gap-3 ${isUser ? 'justify-end' : ''}`}>
@@ -591,9 +603,8 @@ function MessageBubble({
         </div>
       )}
       <div
-        className={`rounded-lg px-4 py-2 max-w-[80%] ${
-          isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'
-        }`}
+        className={`rounded-lg px-4 py-2 max-w-[80%] ${isUser ? 'bg-primary text-primary-foreground' : 'bg-card border border-border'
+          }`}
       >
         {/* Attachments */}
         {message.attachments && message.attachments.length > 0 && (
@@ -616,20 +627,19 @@ function MessageBubble({
                   key={att.file_id}
                   href={fileUrl}
                   download={att.name}
-                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm ${
-                    isUser
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm ${isUser
                       ? 'bg-primary-foreground/10 hover:bg-primary-foreground/20'
                       : 'bg-muted hover:bg-muted/80'
-                  }`}
+                    }`}
                 >
                   <Paperclip className="w-3.5 h-3.5 flex-shrink-0" />
                   <span className="truncate">{att.name}</span>
                   {att.size && (
-                    <span className="text-xs opacity-70 flex-shrink-0">
-                      {att.size > 1024 * 1024
-                        ? `${(att.size / 1024 / 1024).toFixed(1)}MB`
-                        : `${(att.size / 1024).toFixed(0)}KB`}
-                    </span>
+                     <span className="text-xs opacity-70 flex-shrink-0">
+                       {att.size > 1024 * 1024
+                         ? `${(att.size / 1024 / 1024).toFixed(1)}MB`
+                         : `${(att.size / 1024).toFixed(0)}KB`}
+                     </span>
                   )}
                 </a>
               );
@@ -639,10 +649,43 @@ function MessageBubble({
 
         {/* Text content */}
         {isUser ? (
-          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+          <p className="text-sm whitespace-pre-wrap">{textContent}</p>
         ) : (
           <div className="prose prose-sm prose-invert max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
-            <ReactMarkdown>{message.content}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={{
+                table: ({ children, ...props }) => (
+                  <div className="my-3 overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full border-collapse text-sm" {...props}>
+                      {children}
+                    </table>
+                  </div>
+                ),
+                thead: ({ children, ...props }) => (
+                  <thead className="bg-muted/60" {...props}>
+                    {children}
+                  </thead>
+                ),
+                th: ({ children, ...props }) => (
+                  <th className="px-3 py-2 text-left font-semibold text-foreground border-b border-border" {...props}>
+                    {children}
+                  </th>
+                ),
+                td: ({ children, ...props }) => (
+                  <td className="px-3 py-2 border-b border-border/50" {...props}>
+                    {children}
+                  </td>
+                ),
+                tr: ({ children, ...props }) => (
+                  <tr className="hover:bg-muted/30 transition-colors" {...props}>
+                    {children}
+                  </tr>
+                ),
+              }}
+            >
+              {textContent}
+            </ReactMarkdown>
             {isStreaming && (
               <span className="inline-block w-1.5 h-4 bg-foreground/60 animate-pulse ml-0.5 align-middle" />
             )}

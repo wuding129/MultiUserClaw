@@ -3,6 +3,8 @@
 import json
 import json_repair
 import os
+import secrets
+import string
 from typing import Any
 
 import litellm
@@ -12,8 +14,14 @@ from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.registry import find_by_model, find_gateway
 
 
-# Standard OpenAI chat-completion message keys; extras (e.g. reasoning_content) are stripped for strict providers.
-_ALLOWED_MSG_KEYS = frozenset({"role", "content", "tool_calls", "tool_call_id", "name"})
+# Standard OpenAI chat-completion message keys plus reasoning_content for
+# thinking-enabled models (Kimi k2.5, DeepSeek-R1, etc.).
+_ALLOWED_MSG_KEYS = frozenset({"role", "content", "tool_calls", "tool_call_id", "name", "reasoning_content", "thinking_blocks"})
+_ALNUM = string.ascii_letters + string.digits
+
+def _short_tool_id() -> str:
+    """Generate a 9-char alphanumeric ID compatible with all providers (incl. Mistral)."""
+    return "".join(secrets.choice(_ALNUM) for _ in range(9))
 
 
 class LiteLLMProvider(LLMProvider):
@@ -36,9 +44,6 @@ class LiteLLMProvider(LLMProvider):
         proxy_url: str | None = None,
         proxy_token: str | None = None,
     ):
-        # Proxy mode: route all LLM calls through the platform's LLM Proxy.
-        # The proxy is OpenAI-compatible; real API keys live on the platform,
-        # not inside the container.
         self._proxy_mode = bool(proxy_url)
         if self._proxy_mode:
             super().__init__(api_key=proxy_token, api_base=proxy_url)
@@ -49,19 +54,19 @@ class LiteLLMProvider(LLMProvider):
             super().__init__(api_key, api_base)
             self.default_model = default_model
             self.extra_headers = extra_headers or {}
-
-            # Detect gateway / local deployment.
-            # provider_name (from config key) is the primary signal;
-            # api_key / api_base are fallback for auto-detection.
-            self._gateway = find_gateway(provider_name, api_key, api_base)
-
-            # Configure environment variables
-            if api_key:
-                self._setup_env(api_key, api_base, default_model)
-
-            if api_base:
-                litellm.api_base = api_base
-
+        
+        # Detect gateway / local deployment.
+        # provider_name (from config key) is the primary signal;
+        # api_key / api_base are fallback for auto-detection.
+        self._gateway = find_gateway(provider_name, api_key, api_base)
+        
+        # Configure environment variables
+        if api_key:
+            self._setup_env(api_key, api_base, default_model)
+        
+        if api_base:
+            litellm.api_base = api_base
+        
         # Disable LiteLLM logging noise
         litellm.suppress_debug_info = True
         # Drop unsupported parameters for providers (e.g., gpt-5 rejects some params)
@@ -94,9 +99,7 @@ class LiteLLMProvider(LLMProvider):
     def _resolve_model(self, model: str) -> str:
         """Resolve model name by applying provider/gateway prefixes."""
         if self._proxy_mode:
-            # Proxy mode: send the model name as-is via the OpenAI-compatible
-            # path.  The proxy resolves the real provider on its side.
-            bare = model.split("/")[-1]  # strip any "anthropic/" prefix
+            bare = model.split("/")[-1]
             return f"openai/{bare}"
 
         if self._gateway:
@@ -189,6 +192,7 @@ class LiteLLMProvider(LLMProvider):
         model: str | None = None,
         max_tokens: int = 4096,
         temperature: float = 0.7,
+        reasoning_effort: str | None = None,
     ) -> LLMResponse:
         """
         Send a chat completion request via LiteLLM.
@@ -235,6 +239,10 @@ class LiteLLMProvider(LLMProvider):
         if self.extra_headers:
             kwargs["extra_headers"] = self.extra_headers
         
+        if reasoning_effort:
+            kwargs["reasoning_effort"] = reasoning_effort
+            kwargs["drop_params"] = True
+        
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
@@ -263,7 +271,7 @@ class LiteLLMProvider(LLMProvider):
                     args = json_repair.loads(args)
                 
                 tool_calls.append(ToolCallRequest(
-                    id=tc.id,
+                    id=_short_tool_id(),
                     name=tc.function.name,
                     arguments=args,
                 ))
@@ -277,6 +285,7 @@ class LiteLLMProvider(LLMProvider):
             }
         
         reasoning_content = getattr(message, "reasoning_content", None) or None
+        thinking_blocks = getattr(message, "thinking_blocks", None) or None
         
         return LLMResponse(
             content=message.content,
@@ -284,6 +293,7 @@ class LiteLLMProvider(LLMProvider):
             finish_reason=choice.finish_reason or "stop",
             usage=usage,
             reasoning_content=reasoning_content,
+            thinking_blocks=thinking_blocks,
         )
     
     def get_default_model(self) -> str:

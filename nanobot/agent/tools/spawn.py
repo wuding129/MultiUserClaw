@@ -9,22 +9,19 @@ if TYPE_CHECKING:
 
 
 class SpawnTool(Tool):
-    """
-    Tool to spawn a subagent for background task execution.
-    
-    The subagent runs asynchronously and announces its result back
-    to the main agent when complete.
-    """
+    """Tool to spawn a subagent for background task execution."""
     
     def __init__(self, manager: "SubagentManager"):
         self._manager = manager
         self._origin_channel = "cli"
         self._origin_chat_id = "direct"
+        self._session_key = "cli:direct"
     
     def set_context(self, channel: str, chat_id: str) -> None:
         """Set the origin context for subagent announcements."""
         self._origin_channel = channel
         self._origin_chat_id = chat_id
+        self._session_key = f"{channel}:{chat_id}"
     
     @property
     def name(self) -> str:
@@ -51,23 +48,16 @@ class SpawnTool(Tool):
                     "type": "string",
                     "description": "Optional short label for the task (for display)",
                 },
-                "agent_name": {
-                    "type": "string",
-                    "description": (
-                        "Optional name of a plugin agent to use for this task. "
-                        "Plugin agents have specialized system prompts for specific domains."
-                    ),
-                },
             },
             "required": ["task"],
         }
-
-    async def execute(self, task: str, label: str | None = None, agent_name: str | None = None, **kwargs: Any) -> str:
+    
+    async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
         """Spawn a subagent to execute the given task."""
         return await self._manager.spawn(
             task=task,
             label=label,
-            agent_name=agent_name,
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
+            session_key=self._session_key,
         )
