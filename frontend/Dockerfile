@@ -1,49 +1,32 @@
-# 统一主版本，Next 15 建议 Node 20
-ARG NODE_VERSION=20
+# ── Stage 1: Build ────────────────────────────────────────────────────
+FROM node:22-alpine AS builder
 
-FROM node:20-alpine AS base
 WORKDIR /app
-ENV CI=1 NEXT_TELEMETRY_DISABLED=1
 
-# 1) 安装依赖
-FROM base AS deps
-COPY package.json yarn.lock* package-lock.json* pnpm-lock.yaml* ./
-RUN set -eux; \
-  if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm i --no-frozen-lockfile --registry=http://registry.npm.taobao.org; \
-  elif [ -f yarn.lock ]; then yarn --no-frozen-lockfile; \
-  elif [ -f package-lock.json ]; then npm ci --registry=http://registry.npm.taobao.org; \
-  else echo "Lockfile not found." && exit 1; fi
+# Install dependencies first (layer cache)
+COPY package.json package-lock.json* ./
+RUN npm ci
 
-# 2) 模块解析“早失败”校验
-FROM base AS verify
-COPY --from=deps /app/node_modules ./node_modules
-COPY package.json ./
-RUN npm run -s verify:modules
-
-# 3) 质量检查（lint / typecheck）
-FROM base AS quality
-COPY --from=deps /app/node_modules ./node_modules
+# Copy source and build
 COPY . .
-RUN npm run -s lint
-RUN npm run -s typecheck
 
-# 4) 生产构建
-FROM base AS builder
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-RUN npm run -s build
+# VITE_API_URL is baked into the bundle at build time.
+# Empty string means "same origin" — nginx will proxy /api to the gateway.
+ARG VITE_API_URL=""
+ENV VITE_API_URL=${VITE_API_URL}
 
-# 5) 运行镜像（与构建版本一致）
-FROM gcr.io/distroless/nodejs20-debian12 AS runner
-WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-COPY --from=builder /app/next.config.js ./
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
+RUN npm run build
+
+# ── Stage 2: Serve with nginx ────────────────────────────────────────
+FROM nginx:alpine
+
+# Remove default config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Custom nginx config: serve static + proxy /api to gateway
+COPY --from=builder /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
 EXPOSE 3000
-ENV PORT=3000
-CMD ["server.js"]
+
+CMD ["nginx", "-g", "daemon off;"]

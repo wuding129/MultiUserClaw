@@ -1,220 +1,73 @@
-  Nanobot 前端界面实现分析
+# React + TypeScript + Vite
 
-  一、现有架构分析
+This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
-  用户输入 (CLI readline)
-     ↓
-  typer CLI → AgentLoop.process_direct(message)
-     ↓
-  ContextBuilder (system prompt + history + skills)
-     ↓
-  Agent Loop (最多20轮迭代)
-     ├── LLM 调用 (litellm)
-     ├── Tool 执行 (9个工具)
-     └── 循环直到无 tool call
-     ↓
-  SessionManager 保存 (JSONL文件)
-     ↓
-  Rich Panel 渲染到终端
+Currently, two official plugins are available:
 
-  关键发现：
-  ┌──────────────┬────────────────────────────────────────────────────────────────────┐
-  │     项目     │                                现状                                │
-  ├──────────────┼────────────────────────────────────────────────────────────────────┤
-  │ HTTP 服务器  │ 无 — 目前没有任何 HTTP/REST 端点                                   │
-  ├──────────────┼────────────────────────────────────────────────────────────────────┤
-  │ WebSocket    │ 仅用于外部平台连接 (WhatsApp bridge, Feishu 等)                    │
-  ├──────────────┼────────────────────────────────────────────────────────────────────┤
-  │ 流式输出     │ 不支持 — process_direct() 等待完整响应后一次性返回                 │
-  ├──────────────┼────────────────────────────────────────────────────────────────────┤
-  │ 会话管理     │ JSONL 文件存储，有 SessionManager                                  │
-  ├──────────────┼────────────────────────────────────────────────────────────────────┤
-  │ Channel 抽象 │ 有完善的 BaseChannel 接口，新增 Web Channel 很自然                 │
-  ├──────────────┼────────────────────────────────────────────────────────────────────┤
-  │ 关键入口     │ AgentLoop.process_direct() — 直接接受消息返回响应，无需 MessageBus │
-  └──────────────┴────────────────────────────────────────────────────────────────────┘
-  二、实现方案
+- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
+- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
-  方案：新增 Web Channel + FastAPI 后端 + 轻量前端
+## React Compiler
 
-  ┌─────────────────────────────────────────────────┐
-  │                    Browser                       │
-  │  ┌─────────────────────────────────────────┐    │
-  │  │         前端 (HTML/JS/CSS)              │    │
-  │  │  - 对话界面 (类 ChatGPT)               │    │
-  │  │  - Markdown 渲染                        │    │
-  │  │  - 流式输出 (SSE/WebSocket)             │    │
-  │  └──────────────┬──────────────────────────┘    │
-  └─────────────────┼───────────────────────────────┘
-                    │ HTTP + SSE/WebSocket
-  ┌─────────────────┼───────────────────────────────┐
-  │  FastAPI Server  │                               │
-  │  ┌──────────────┴──────────────────────────┐    │
-  │  │  POST /api/chat     → 发送消息          │    │
-  │  │  GET  /api/chat/stream → SSE 流式响应   │    │
-  │  │  GET  /api/sessions → 会话列表          │    │
-  │  │  DELETE /api/sessions/{id} → 删除会话   │    │
-  │  │  GET  /api/status   → 系统状态          │    │
-  │  │  GET  /           → 静态前端页面        │    │
-  │  └──────────────┬──────────────────────────┘    │
-  │                 │                                │
-  │  ┌──────────────┴──────────────────────────┐    │
-  │  │  WebChannel (继承 BaseChannel)          │    │
-  │  │  或直接调用 AgentLoop.process_direct()  │    │
-  │  └──────────────┬──────────────────────────┘    │
-  │                 │                                │
-  │  ┌──────────────┴──────────────────────────┐    │
-  │  │  AgentLoop (已有)                       │    │
-  │  │  SessionManager (已有)                  │    │
-  │  │  LLMProvider (已有)                     │    │
-  │  └─────────────────────────────────────────┘    │
-  └─────────────────────────────────────────────────┘
+The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
-  需要修改/新增的文件
+## Expanding the ESLint configuration
 
-  后端 (Python)：
-  ┌───────────────────────────────────────┬──────┬─────────────────────────────────────────────────────────┐
-  │                 文件                  │ 操作 │                          说明                           │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/web/server.py                 │ 新增 │ FastAPI 应用，API 路由                                  │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/web/api.py                    │ 新增 │ API 端点实现 (chat, sessions, status)                   │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/web/__init__.py               │ 新增 │ 包初始化                                                │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/agent/loop.py                 │ 修改 │ 添加 process_direct_stream() — 流式版本，yield 中间结果 │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/providers/litellm_provider.py │ 修改 │ 添加 chat_stream() 方法 (litellm 原生支持)              │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/providers/base.py             │ 修改 │ 基类添加流式接口                                        │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ nanobot/cli/commands.py               │ 修改 │ 新增 nanobot web 命令启动前端                           │
-  ├───────────────────────────────────────┼──────┼─────────────────────────────────────────────────────────┤
-  │ pyproject.toml                        │ 修改 │ 添加 fastapi, uvicorn 依赖                              │
-  └───────────────────────────────────────┴──────┴─────────────────────────────────────────────────────────┘
-  前端 (静态文件，打包进 Python 包)：
-  ┌───────────────────────────────┬─────────────────────────────────┐
-  │             文件              │              说明               │
-  ├───────────────────────────────┼─────────────────────────────────┤
-  │ nanobot/web/static/index.html │ 单页应用入口                    │
-  ├───────────────────────────────┼─────────────────────────────────┤
-  │ nanobot/web/static/style.css  │ 样式 (暗色主题)                 │
-  ├───────────────────────────────┼─────────────────────────────────┤
-  │ nanobot/web/static/app.js     │ 前端逻辑 (vanilla JS 或 Preact) │
-  └───────────────────────────────┴─────────────────────────────────┘
-  三、具体实现步骤
+If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
 
-  Step 1: 后端 API 层
+```js
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
 
-  # nanobot/web/server.py
-  from fastapi import FastAPI
-  from fastapi.staticfiles import StaticFiles
-  from fastapi.responses import StreamingResponse
+      // Remove tseslint.configs.recommended and replace with this
+      tseslint.configs.recommendedTypeChecked,
+      // Alternatively, use this for stricter rules
+      tseslint.configs.strictTypeChecked,
+      // Optionally, add this for stylistic rules
+      tseslint.configs.stylisticTypeChecked,
 
-  app = FastAPI(title="nanobot")
+      // Other configs...
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```
 
-  @app.post("/api/chat")
-  async def chat(request: ChatRequest):
-      """发送消息，返回完整响应"""
-      response = await agent_loop.process_direct(
-          content=request.message,
-          session_key=f"web:{request.session_id}",
-          channel="web",
-          chat_id=request.session_id,
-      )
-      return {"response": response}
+You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
 
-  @app.post("/api/chat/stream")
-  async def chat_stream(request: ChatRequest):
-      """发送消息，SSE 流式返回"""
-      async def event_generator():
-          async for chunk in agent_loop.process_direct_stream(...):
-              yield f"data: {json.dumps({'content': chunk})}\n\n"
-          yield "data: [DONE]\n\n"
-      return StreamingResponse(event_generator(), media_type="text/event-stream")
+```js
+// eslint.config.js
+import reactX from 'eslint-plugin-react-x'
+import reactDom from 'eslint-plugin-react-dom'
 
-  Step 2: 流式支持 (Agent Loop 改造)
-
-  # nanobot/agent/loop.py — 新增方法
-  async def process_direct_stream(self, content, session_key, ...):
-      """流式版 process_direct，逐 token yield"""
-      # ... 构建 context 同 process_direct ...
-
-      while iteration < self.max_iterations:
-          if is_last_iteration:  # 无 tool call 时流式输出
-              async for chunk in self.provider.chat_stream(messages, tools, model):
-                  yield chunk  # 逐 token 传给前端
-          else:
-              response = await self.provider.chat(messages, tools, model)  # tool call 仍同步
-              # yield tool 执行状态给前端（可选）
-              yield {"type": "tool_call", "name": tool_call.name}
-
-  Step 3: CLI 命令
-
-  # nanobot/cli/commands.py — 新增
-  @app.command()
-  def web(port: int = 18080):
-      """Start the web interface."""
-      import uvicorn
-      from nanobot.web.server import create_app
-      app = create_app(config)
-      uvicorn.run(app, host="0.0.0.0", port=port)
-
-  Step 4: 前端界面
-
-  选择 vanilla JS + marked.js (零构建依赖，直接内嵌)：
-
-  ┌──────────────────────────────────────────┐
-  │  🐈 nanobot                    [新对话]  │
-  ├──────────┬───────────────────────────────┤
-  │ 会话列表  │  对话区域                     │
-  │          │                               │
-  │ > 今天    │  You: 你好                    │
-  │   昨天    │                               │
-  │   2/9     │  🐈 nanobot:                 │
-  │          │  你好！有什么我能帮你的？       │
-  │          │                               │
-  │          │  [工具调用: web_search(...)]   │
-  │          │                               │
-  ├──────────┴───────────────────────────────┤
-  │  [输入框...                    ] [发送]   │
-  └──────────────────────────────────────────┘
-
-  核心功能：
-  - SSE 流式接收，逐字显示
-  - marked.js 渲染 Markdown + 代码高亮
-  - 会话切换/新建/删除
-  - 工具调用过程可视化 (折叠展示)
-  - 暗色主题，响应式布局
-
-  四、关键设计决策
-  ┌───────────────────┬──────────────────────────────────────────────┬───────────────────────────────────────────────┐
-  │      决策点       │                     推荐                     │                     理由                      │
-  ├───────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────┤
-  │ 后端框架          │ FastAPI                                      │ 原生 async，自动 OpenAPI 文档，SSE 支持好     │
-  ├───────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────┤
-  │ 通信协议          │ SSE (Server-Sent Events)                     │ 比 WebSocket 简单，单向流式足够，自动重连     │
-  ├───────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────┤
-  │ 前端方案          │ Vanilla JS + 静态文件                        │ 零构建步骤，直接打包进 pip 包，维护成本最低   │
-  ├───────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────┤
-  │ Markdown 渲染     │ marked.js + highlight.js (CDN)               │ 轻量，和 Rich 终端渲染效果对齐                │
-  ├───────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────┤
-  │ 是否走 MessageBus │ 不走，直接调 process_direct()                │ 更简单，Web 前端是直接交互不需要异步解耦      │
-  ├───────────────────┼──────────────────────────────────────────────┼───────────────────────────────────────────────┤
-  │ 流式实现          │ 双层：provider 流式 → agent loop yield → SSE │ litellm 原生支持 completion(..., stream=True) │
-  └───────────────────┴──────────────────────────────────────────────┴───────────────────────────────────────────────┘
-  五、工作量估计
-  ┌────────────────────────────┬────────────┬──────────────────────────────┐
-  │            模块            │ 新增代码量 │             说明             │
-  ├────────────────────────────┼────────────┼──────────────────────────────┤
-  │ web/server.py + web/api.py │ ~200 行    │ FastAPI 路由和逻辑           │
-  ├────────────────────────────┼────────────┼──────────────────────────────┤
-  │ agent/loop.py 流式改造     │ ~80 行     │ 新增 process_direct_stream() │
-  ├────────────────────────────┼────────────┼──────────────────────────────┤
-  │ providers/ 流式支持        │ ~50 行     │ 新增 chat_stream()           │
-  ├────────────────────────────┼────────────┼──────────────────────────────┤
-  │ cli/commands.py web 命令   │ ~30 行     │ 启动入口                     │
-  ├────────────────────────────┼────────────┼──────────────────────────────┤
-  │ 前端 HTML/CSS/JS           │ ~500 行    │ 聊天界面                     │
-  ├────────────────────────────┼────────────┼──────────────────────────────┤
-  │ 合计                       │ ~860 行    │                              │
+export default defineConfig([
+  globalIgnores(['dist']),
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [
+      // Other configs...
+      // Enable lint rules for React
+      reactX.configs['recommended-typescript'],
+      // Enable lint rules for React DOM
+      reactDom.configs.recommended,
+    ],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.node.json', './tsconfig.app.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+      // other options...
+    },
+  },
+])
+```

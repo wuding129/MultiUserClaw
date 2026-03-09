@@ -270,10 +270,11 @@ def start_frontend() -> "subprocess.Popen | None":
     proc = subprocess.Popen(
         "npm run dev",
         cwd=frontend_dir,
-        env=_base_env(NEXT_PUBLIC_API_URL="http://127.0.0.1:8080"),
+        env=_base_env(VITE_API_URL="http://127.0.0.1:8080"),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         shell=True,
+        **({"start_new_session": True} if not IS_WINDOWS else {}),
     )
     log(f"  PID: {proc.pid}")
     return proc
@@ -330,7 +331,7 @@ def stop_all():
 
 
 def _stop_all_unix():
-    patterns = ["bridge/start", "openclaw gateway", "uvicorn app.main:app", "next dev.*3080"]
+    patterns = ["bridge/start", "openclaw gateway", "uvicorn app.main:app", "vite.*3080"]
     for pattern in patterns:
         result = subprocess.run(
             f"pgrep -f '{pattern}'",
@@ -482,11 +483,24 @@ def main():
         for name, proc in processes.items():
             if proc and proc.poll() is None:
                 log(f"停止 {name} (PID {proc.pid})...")
-                proc.terminate()
+                # shell=True + start_new_session 的进程需要 kill 整个进程组
+                if not IS_WINDOWS and name == "frontend":
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except (ProcessLookupError, PermissionError):
+                        proc.terminate()
+                else:
+                    proc.terminate()
                 try:
                     proc.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    proc.kill()
+                    if not IS_WINDOWS and name == "frontend":
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except (ProcessLookupError, PermissionError):
+                            proc.kill()
+                    else:
+                        proc.kill()
 
         # 如果启动了 db，也停止它
         if "db" in enabled:

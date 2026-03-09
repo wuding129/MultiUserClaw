@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { BridgeGatewayClient } from "../gateway-client.js";
+import { randomUUID } from "node:crypto";
 import { asyncHandler, toOpenclawSessionKey, toNanobotSessionId, extractTextContent } from "../utils.js";
 
 interface OpenclawSessionRow {
@@ -82,6 +83,31 @@ export function sessionsRoutes(client: BridgeGatewayClient): Router {
         created_at: firstMsg?.timestamp || null,
         updated_at: lastMsg?.timestamp || null,
       });
+    } catch (err) {
+      res.status(500).json({ detail: (err as Error).message });
+    }
+  }));
+
+  // POST /api/sessions/:key/messages — send a chat message
+  router.post("/sessions/:key(*)/messages", asyncHandler(async (req, res) => {
+    const key = toOpenclawSessionKey(req.params.key);
+    const { message, agentId } = req.body;
+
+    if (!message || typeof message !== "string") {
+      res.status(400).json({ detail: "message is required" });
+      return;
+    }
+
+    try {
+      const params: Record<string, unknown> = {
+        sessionKey: key,
+        message,
+        deliver: false,
+        idempotencyKey: randomUUID(),
+      };
+
+      const result = await client.request<Record<string, unknown>>("chat.send", params);
+      res.json({ ok: true, runId: result.runId || null });
     } catch (err) {
       res.status(500).json({ detail: (err as Error).message });
     }

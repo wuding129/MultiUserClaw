@@ -11,6 +11,7 @@ import { skillsRoutes } from "./routes/skills.js";
 import { commandsRoutes } from "./routes/commands.js";
 import { pluginsRoutes } from "./routes/plugins.js";
 import { cronRoutes } from "./routes/cron.js";
+import { agentsRoutes } from "./routes/agents.js";
 import { marketplacesRoutes } from "./routes/marketplaces.js";
 
 export function createServer(client: BridgeGatewayClient, config: BridgeConfig): http.Server {
@@ -28,6 +29,7 @@ export function createServer(client: BridgeGatewayClient, config: BridgeConfig):
   app.use("/api", commandsRoutes(config));
   app.use("/api", pluginsRoutes(config));
   app.use("/api", cronRoutes(client));
+  app.use("/api", agentsRoutes(client));
   app.use("/api", marketplacesRoutes(config));
 
   // Error handler

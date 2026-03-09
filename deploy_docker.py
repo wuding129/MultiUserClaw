@@ -8,7 +8,7 @@
   # 本地部署（默认端口 gateway:8080, frontend:3080）
   python deploy_docker.py
 
-  # 指定服务器 IP（会自动设置 NEXT_PUBLIC_API_URL）
+  # 指定服务器 IP（会自动设置 VITE_API_URL）
   python deploy_docker.py --host 192.168.1.160
 
   # 使用 prod compose 文件
@@ -30,6 +30,7 @@
 """
 
 import argparse
+import concurrent.futures
 import os
 import subprocess
 import sys
@@ -144,16 +145,29 @@ def build_openclaw_image():
     success("openclaw:latest 构建完成")
 
 
+def _build_task(name: str, cmd: str):
+    """在子线程中执行构建命令，返回 (name, returncode, elapsed)。"""
+    log(f"[并行] 开始构建: {name}")
+    start = time.time()
+    result = subprocess.run(cmd, shell=True, cwd=PROJECT_DIR)
+    elapsed = time.time() - start
+    if result.returncode == 0:
+        success(f"[并行] {name} 构建完成 ({elapsed:.0f}s)")
+    else:
+        error(f"[并行] {name} 构建失败 (exit {result.returncode}, {elapsed:.0f}s)")
+    return name, result.returncode, elapsed
+
+
 def build_and_start(compose_file: str, host: str, gateway_port: int, frontend_port: int):
     """构建并启动所有 compose 服务。"""
     api_url = f"http://{host}:{gateway_port}"
-    log(f"Frontend NEXT_PUBLIC_API_URL = {api_url}")
-    os.environ["NEXT_PUBLIC_API_URL"] = api_url
+    log(f"Frontend VITE_API_URL = {api_url}")
+    os.environ["VITE_API_URL"] = api_url
 
     compose_args = f"-f {compose_file}"
 
-    log(f"使用 {compose_file} 构建并启动服务...")
-    run(f"docker compose {compose_args} build")
+    log(f"使用 {compose_file} 并行构建所有镜像...")
+    run(f"docker compose {compose_args} build --parallel")
     run(f"docker compose {compose_args} up -d")
     success("所有服务已启动")
 
@@ -162,8 +176,8 @@ def rebuild_service(compose_file: str, service: str, host: str | None = None, ga
     """重建并重启指定服务。"""
     if host and gateway_port:
         api_url = f"http://{host}:{gateway_port}"
-        os.environ["NEXT_PUBLIC_API_URL"] = api_url
-        log(f"NEXT_PUBLIC_API_URL = {api_url}")
+        os.environ["VITE_API_URL"] = api_url
+        log(f"VITE_API_URL = {api_url}")
     compose_args = f"-f {compose_file}"
     log(f"重建服务: {service}...")
     run(f"docker compose {compose_args} build --no-cache {service}")
@@ -346,18 +360,18 @@ def main():
             run('docker exec openclaw-postgres psql -U nanobot -d nanobot_platform -c "DELETE FROM containers;"', check=False)
             success("数据库容器记录已清理")
 
-        # 设置 NEXT_PUBLIC_API_URL（frontend 构建需要）
+        # 设置 VITE_API_URL（frontend 构建需要）
         if args.host and args.gateway_port:
             api_url = f"http://{args.host}:{args.gateway_port}"
-            os.environ["NEXT_PUBLIC_API_URL"] = api_url
-            log(f"NEXT_PUBLIC_API_URL = {api_url}")
+            os.environ["VITE_API_URL"] = api_url
+            log(f"VITE_API_URL = {api_url}")
 
         # 重建 compose 服务
         if services:
             compose_args = f"-f {args.compose}"
             services_str = " ".join(services)
             log(f"重建服务: {services_str}...")
-            run(f"docker compose {compose_args} build --no-cache {services_str}")
+            run(f"docker compose {compose_args} build --parallel --no-cache {services_str}")
             run(f"docker compose {compose_args} up -d {services_str}")
             success(f"服务 {services_str} 已重建并启动")
 
@@ -366,16 +380,43 @@ def main():
 
     check_env_file()
 
-    # 构建 openclaw 基础镜像
+    # 设置 VITE_API_URL（frontend 构建需要）
+    api_url = f"http://{args.host}:{args.gateway_port}"
+    os.environ["VITE_API_URL"] = api_url
+    log(f"VITE_API_URL = {api_url}")
+
+    compose_args = f"-f {args.compose}"
+
     if not args.skip_base:
-        build_openclaw_image()
+        # 并行构建: openclaw 基础镜像 + compose 服务
+        log("并行构建 openclaw 基础镜像 + compose 服务...")
+        tasks = {
+            "openclaw:latest": "docker build --no-cache -f openclaw/Dockerfile.bridge -t openclaw:latest openclaw/",
+            "compose services": f"docker compose {compose_args} build --parallel",
+        }
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+            futures = {pool.submit(_build_task, name, cmd): name for name, cmd in tasks.items()}
+            failed = []
+            for future in concurrent.futures.as_completed(futures):
+                name, rc, elapsed = future.result()
+                if rc != 0:
+                    failed.append(name)
+        if failed:
+            error(f"以下构建失败: {', '.join(failed)}")
+            sys.exit(1)
+        success("所有镜像并行构建完成")
+    else:
+        # 仅构建 compose 服务
+        log(f"使用 {args.compose} 构建 compose 服务...")
+        run(f"docker compose {compose_args} build --parallel")
 
     if args.build_only:
         log("仅构建模式，跳过启动")
         return
 
-    # 构建并启动
-    build_and_start(args.compose, args.host, args.gateway_port, args.frontend_port)
+    # 启动服务
+    run(f"docker compose {compose_args} up -d")
+    success("所有服务已启动")
 
     # 健康检查
     if not args.skip_health:
