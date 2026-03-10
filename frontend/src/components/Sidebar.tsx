@@ -13,39 +13,8 @@ import {
   FileText,
   Settings,
   User,
+  Shield,
 } from 'lucide-react'
-
-const navSections = [
-  {
-    label: '概览',
-    items: [
-      { to: '/dashboard', icon: LayoutDashboard, label: '仪表盘' },
-    ],
-  },
-  {
-    label: 'Agents',
-    items: [
-      { to: '/agents', icon: Bot, label: 'Agents', badge: 6 },
-    ],
-  },
-  {
-    label: '技能中心',
-    items: [
-      { to: '/skills', icon: Zap, label: '技能商店' },
-      { to: '/channels', icon: Radio, label: '渠道管理' },
-      { to: '/models', icon: Brain, label: 'AI 模型' },
-      { to: '/knowledge', icon: BookOpen, label: '知识库' },
-    ],
-  },
-  {
-    label: '系统',
-    items: [
-      { to: '/sessions', icon: MessageSquare, label: '会话历史' },
-      { to: '/audit', icon: FileText, label: '审计日志' },
-      { to: '/settings', icon: Settings, label: '系统设置' },
-    ],
-  },
-]
 
 export default function Sidebar() {
   const location = useLocation()
@@ -54,6 +23,46 @@ export default function Sidebar() {
   useEffect(() => {
     getMe().then(setUser).catch(() => {})
   }, [])
+
+  const isAdmin = user?.role === 'admin'
+
+  const navSections = [
+    {
+      label: '概览',
+      items: [
+        { to: '/dashboard', icon: LayoutDashboard, label: '仪表盘' },
+      ],
+    },
+    {
+      label: 'Agents',
+      items: [
+        { to: '/agents', icon: Bot, label: 'Agents' },
+      ],
+    },
+    {
+      label: '技能中心',
+      items: [
+        { to: '/skills', icon: Zap, label: '技能商店' },
+        { to: '/channels', icon: Radio, label: '渠道管理' },
+        { to: '/models', icon: Brain, label: 'AI 模型' },
+        { to: '/knowledge', icon: BookOpen, label: '知识库', disabled: true },
+      ],
+    },
+    {
+      label: '系统',
+      items: [
+        { to: '/sessions', icon: MessageSquare, label: '会话历史' },
+        { to: '/audit', icon: FileText, label: '审计日志' },
+        { to: '/settings', icon: Settings, label: '系统设置', disabled: true },
+      ],
+    },
+    ...(isAdmin ? [{
+      label: '管理员',
+      items: [
+        { to: '/admin', icon: Shield, label: '用户管理' },
+      ],
+    }] : []),
+  ]
 
   return (
     <aside className="flex w-56 flex-col bg-dark-sidebar border-r border-dark-border">
@@ -79,9 +88,8 @@ export default function Sidebar() {
               const Icon = item.icon
               const isActive = location.pathname === item.to ||
                 (item.to !== '/dashboard' && location.pathname.startsWith(item.to))
-              const isDisabled = item.to === '/knowledge' || item.to === '/settings'
 
-              if (isDisabled) {
+              if (item.disabled) {
                 return (
                   <div
                     key={item.to}
@@ -105,11 +113,6 @@ export default function Sidebar() {
                 >
                   <Icon size={18} />
                   <span>{item.label}</span>
-                  {'badge' in item && item.badge && (
-                    <span className="ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-accent-red text-xs text-white">
-                      {item.badge}
-                    </span>
-                  )}
                 </NavLink>
               )
             })}
@@ -120,11 +123,16 @@ export default function Sidebar() {
       {/* User */}
       <div className="border-t border-dark-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-accent-purple text-sm font-medium text-white">
+          <div className={`flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium text-white ${
+            isAdmin ? 'bg-accent-green' : 'bg-accent-purple'
+          }`}>
             <User size={16} />
           </div>
           <div>
-            <div className="text-sm font-medium text-dark-text">{user?.username ?? 'Admin'}</div>
+            <div className="text-sm font-medium text-dark-text">
+              {user?.username ?? 'Loading...'}
+              {isAdmin && <span className="ml-1 text-xs text-accent-green">(管理员)</span>}
+            </div>
             <div className="text-xs text-dark-text-secondary">{user?.email ?? ''}</div>
           </div>
         </div>

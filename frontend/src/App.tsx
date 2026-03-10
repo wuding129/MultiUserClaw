@@ -10,6 +10,7 @@ import Channels from './pages/Channels'
 import AIModels from './pages/AIModels'
 import Sessions from './pages/Sessions'
 import AuditLog from './pages/AuditLog'
+import Admin from './pages/Admin'
 import { isLoggedIn } from './lib/api'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,7 @@ export default function App() {
         <Route path="models" element={<AIModels />} />
         <Route path="sessions" element={<Sessions />} />
         <Route path="audit" element={<AuditLog />} />
+        <Route path="admin" element={<Admin />} />
       </Route>
     </Routes>
   )
