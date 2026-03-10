@@ -5,6 +5,7 @@ import multer from "multer";
 import archiver from "archiver";
 import unzipper from "unzipper";
 import type { BridgeConfig } from "../config.js";
+import type { BridgeGatewayClient } from "../gateway-client.js";
 import { asyncHandler } from "../utils.js";
 
 interface SkillInfo {
@@ -12,6 +13,7 @@ interface SkillInfo {
   description: string;
   source: string;
   available: boolean;
+  disabled: boolean;
   path: string;
 }
 
@@ -47,8 +49,14 @@ function scanSkillsDir(dir: string, source: string): SkillInfo[] {
   if (!fs.existsSync(dir)) return skills;
 
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const skillMdPath = path.join(dir, entry.name, "SKILL.md");
+    // Follow symlinks: isDirectory() returns false for symlinks
+    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
+    const entryPath = path.join(dir, entry.name);
+    try {
+      const stat = fs.statSync(entryPath);
+      if (!stat.isDirectory()) continue;
+    } catch { continue; }
+    const skillMdPath = path.join(entryPath, "SKILL.md");
     if (!fs.existsSync(skillMdPath)) continue;
 
     const content = fs.readFileSync(skillMdPath, "utf-8");
@@ -59,6 +67,7 @@ function scanSkillsDir(dir: string, source: string): SkillInfo[] {
       description,
       source,
       available: true,
+      disabled: false,
       path: skillMdPath,
     });
   }
@@ -66,24 +75,56 @@ function scanSkillsDir(dir: string, source: string): SkillInfo[] {
   return skills;
 }
 
-export function skillsRoutes(config: BridgeConfig): Router {
+export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient): Router {
   const router = Router();
   const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
   const builtinSkillsDir = path.resolve(process.cwd(), "skills");
+  const globalSkillsDir = path.join(config.openclawHome, "skills");
   const workspaceSkillsDir = path.join(config.workspacePath, "skills");
 
   // GET /api/skills
   router.get("/skills", asyncHandler(async (_req, res) => {
     const builtin = scanSkillsDir(builtinSkillsDir, "builtin");
+    const global = scanSkillsDir(globalSkillsDir, "global");
     const workspace = scanSkillsDir(workspaceSkillsDir, "workspace");
 
-    // Workspace skills override builtin ones with same name
+    // Priority: workspace > global > builtin (higher overrides lower)
     const skillMap = new Map<string, SkillInfo>();
     for (const s of builtin) skillMap.set(s.name, s);
+    for (const s of global) skillMap.set(s.name, s);
     for (const s of workspace) skillMap.set(s.name, s);
 
+    // Merge disabled state from gateway skills.status
+    try {
+      const statusReport = await client.request<{ skills?: Array<{ name?: string; skillKey?: string; disabled?: boolean }> }>("skills.status", {});
+      const statusSkills = statusReport?.skills || [];
+      for (const ss of statusSkills) {
+        const key = ss.name || ss.skillKey || "";
+        const existing = skillMap.get(key);
+        if (existing && ss.disabled) {
+          existing.disabled = true;
+        }
+      }
+    } catch {
+      // Gateway may not support skills.status — just return without disabled info
+    }
+
     res.json(Array.from(skillMap.values()));
+  }));
+
+  // PUT /api/skills/:name/toggle — enable or disable a skill
+  router.put("/skills/:name/toggle", asyncHandler(async (req, res) => {
+    const { enabled } = req.body as { enabled: boolean };
+    try {
+      await client.request("skills.update", {
+        skillKey: req.params.name,
+        enabled,
+      });
+      res.json({ ok: true, name: req.params.name, enabled });
+    } catch (err) {
+      res.status(500).json({ detail: (err as Error).message });
+    }
   }));
 
   // DELETE /api/skills/:name

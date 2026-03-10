@@ -67,15 +67,11 @@ async def proxy_http(
                 detail="OpenClaw container is starting up, please retry in a few seconds",
             )
 
-    ct = resp.headers.get("content-type", "")
-    if ct.startswith("application/json"):
-        return resp.json()
-    # Binary responses (e.g. zip downloads) — stream through with original headers
     from fastapi.responses import Response
     return Response(
         content=resp.content,
         status_code=resp.status_code,
-        media_type=ct,
+        media_type=resp.headers.get("content-type", "application/json"),
         headers={k: v for k, v in resp.headers.items() if k.lower() in ("content-disposition",)},
     )
 

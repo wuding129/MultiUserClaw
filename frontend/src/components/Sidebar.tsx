@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
-import { getMe } from '../lib/api'
+import { getMe, listAgents } from '../lib/api'
 import type { AuthUser } from '../lib/api'
 import {
   LayoutDashboard,
@@ -8,20 +8,25 @@ import {
   Zap,
   Radio,
   Brain,
-  BookOpen,
+  FolderOpen,
   MessageSquare,
-  FileText,
+  Clock,
+  Monitor,
   Settings,
   User,
   Shield,
+  FileText,
 } from 'lucide-react'
+
 
 export default function Sidebar() {
   const location = useLocation()
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [agentCount, setAgentCount] = useState<number>(0)
 
   useEffect(() => {
     getMe().then(setUser).catch(() => {})
+    listAgents().then(r => setAgentCount(r.agents?.length ?? 0)).catch(() => {})
   }, [])
 
   const isAdmin = user?.role === 'admin'
@@ -36,7 +41,8 @@ export default function Sidebar() {
     {
       label: 'Agents',
       items: [
-        { to: '/agents', icon: Bot, label: 'Agents' },
+        { to: '/agents', icon: Bot, label: 'Agents', badgeKey: 'agents' },
+        { to: '/chat', icon: MessageSquare, label: '会话' },
       ],
     },
     {
@@ -45,15 +51,17 @@ export default function Sidebar() {
         { to: '/skills', icon: Zap, label: '技能商店' },
         { to: '/channels', icon: Radio, label: '渠道管理' },
         { to: '/models', icon: Brain, label: 'AI 模型' },
-        { to: '/knowledge', icon: BookOpen, label: '知识库', disabled: true },
+        { to: '/files', icon: FolderOpen, label: '文件管理' },
       ],
     },
     {
       label: '系统',
       items: [
         { to: '/sessions', icon: MessageSquare, label: '会话历史' },
+        { to: '/cron', icon: Clock, label: '定时任务' },
+        { to: '/nodes', icon: Monitor, label: 'Node 管理' },
         { to: '/audit', icon: FileText, label: '审计日志' },
-        { to: '/settings', icon: Settings, label: '系统设置', disabled: true },
+        { to: '/settings', icon: Settings, label: '系统设置' },
       ],
     },
     ...(isAdmin ? [{
@@ -88,6 +96,7 @@ export default function Sidebar() {
               const Icon = item.icon
               const isActive = location.pathname === item.to ||
                 (item.to !== '/dashboard' && location.pathname.startsWith(item.to))
+<<<<<<< HEAD
 
               if (item.disabled) {
                 return (
@@ -101,6 +110,8 @@ export default function Sidebar() {
                 )
               }
 
+=======
+>>>>>>> main
               return (
                 <NavLink
                   key={item.to}
@@ -113,6 +124,11 @@ export default function Sidebar() {
                 >
                   <Icon size={18} />
                   <span>{item.label}</span>
+                  {'badgeKey' in item && item.badgeKey === 'agents' && agentCount > 0 && (
+                    <span className="ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-accent-blue/20 px-1 text-xs text-accent-blue">
+                      {agentCount}
+                    </span>
+                  )}
                 </NavLink>
               )
             })}

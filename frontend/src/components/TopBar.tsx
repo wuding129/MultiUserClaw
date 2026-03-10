@@ -1,4 +1,4 @@
-import { Search, Bell, Settings, LogOut } from 'lucide-react'
+import { Bell, Settings, LogOut } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { ping, logout } from '../lib/api'
 
@@ -14,15 +14,7 @@ export default function TopBar() {
 
   return (
     <header className="flex h-14 items-center justify-between border-b border-dark-border bg-dark-sidebar px-6">
-      {/* Search */}
-      <div className="flex w-96 items-center gap-2 rounded-lg bg-dark-card px-4 py-2">
-        <Search size={16} className="text-dark-text-secondary" />
-        <input
-          type="text"
-          placeholder="搜索 Agent、技能、设置..."
-          className="flex-1 bg-transparent text-sm text-dark-text outline-none placeholder:text-dark-text-secondary"
-        />
-      </div>
+      <div />
 
       {/* Right side */}
       <div className="flex items-center gap-4">

@@ -50,8 +50,9 @@ export function cronRoutes(client: BridgeGatewayClient): Router {
     const includeDisabled = req.query.include_disabled === "true";
 
     try {
-      const jobs = await client.request<Record<string, unknown>[]>("cron.list", {});
-      let result = (jobs || []).map(serializeJob);
+      const raw = await client.request<Record<string, unknown>[] | { jobs: Record<string, unknown>[] }>("cron.list", {});
+      const jobs = Array.isArray(raw) ? raw : (raw?.jobs || []);
+      let result = jobs.map(serializeJob);
 
       if (!includeDisabled) {
         result = result.filter((j) => j.enabled);

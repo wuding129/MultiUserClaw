@@ -1,7 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
-  listAgentIds,
   resolveAgentDir,
   resolveAgentWorkspaceDir,
 } from "../../agents/agent-scope.js";
@@ -350,7 +349,9 @@ async function listAgentFiles(workspaceDir: string, options?: { hideBootstrap?: 
 
 function resolveAgentIdOrError(agentIdRaw: string, cfg: ReturnType<typeof loadConfig>) {
   const agentId = normalizeAgentId(agentIdRaw);
-  const allowed = new Set(listAgentIds(cfg));
+  // Use the same agent list as agents.list (includes disk-discovered agents)
+  const gatewayAgents = listAgentsForGateway(cfg);
+  const allowed = new Set(gatewayAgents.agents.map((a) => a.id));
   if (!allowed.has(agentId)) {
     return null;
   }

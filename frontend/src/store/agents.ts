@@ -6,15 +6,11 @@ export async function fetchAgents() {
 }
 
 export async function fetchAgentDetail(agentId: string) {
-  const [filesResult, soulFile] = await Promise.all([
-    api.listAgentFiles(agentId),
-    api.getAgentFile(agentId, 'SOUL.md').catch((): null => null),
-  ])
+  const filesResult = await api.listAgentFiles(agentId)
   return {
     agentId,
     workspace: filesResult?.workspace || '',
     files: filesResult?.files || [],
-    systemPrompt: soulFile?.file?.content || '',
   }
 }
 
@@ -26,10 +22,6 @@ export async function updateExistingAgent(agentId: string, updates: {
   name?: string; workspace?: string; model?: string; avatar?: string;
 }) {
   return api.updateAgent(agentId, updates)
-}
-
-export async function updateAgentSystemPrompt(agentId: string, content: string) {
-  return api.setAgentFile(agentId, 'SOUL.md', content)
 }
 
 export async function removeAgent(agentId: string, deleteFiles = false) {

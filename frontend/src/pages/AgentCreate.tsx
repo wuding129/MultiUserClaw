@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, Bot, Loader2 } from 'lucide-react'
-import { createNewAgent, updateAgentSystemPrompt } from '../store/agents'
+import { createNewAgent } from '../store/agents'
 
 export default function AgentCreate() {
   const navigate = useNavigate()
@@ -10,7 +10,6 @@ export default function AgentCreate() {
   const [form, setForm] = useState({
     name: '',
     workspace: '',
-    systemPrompt: '',
   })
 
   const workspaceName = form.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
@@ -24,12 +23,7 @@ export default function AgentCreate() {
 
     try {
       const workspace = form.workspace.trim() || undefined
-      const result = await createNewAgent(workspaceName, workspace) as unknown as { ok: boolean; agentId?: string }
-
-      if (result.ok && result.agentId && form.systemPrompt.trim()) {
-        await updateAgentSystemPrompt(result.agentId, form.systemPrompt)
-      }
-
+      await createNewAgent(workspaceName, workspace)
       navigate('/agents')
     } catch (err: any) {
       setError(err?.message || '创建失败，请重试')
@@ -88,18 +82,6 @@ export default function AgentCreate() {
               onChange={e => setForm(f => ({ ...f, workspace: e.target.value }))}
               placeholder={`留空则自动生成：~/.openclaw/workspace-${workspaceName || '<name>'}`}
               className="w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-2.5 text-sm text-dark-text outline-none focus:border-accent-blue placeholder:text-dark-text-secondary"
-            />
-          </div>
-
-          {/* System Prompt */}
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-dark-text">系统提示词</label>
-            <textarea
-              value={form.systemPrompt}
-              onChange={e => setForm(f => ({ ...f, systemPrompt: e.target.value }))}
-              rows={4}
-              placeholder="定义该 Agent 的行为模式和知识范围..."
-              className="w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-2.5 text-sm text-dark-text outline-none focus:border-accent-blue placeholder:text-dark-text-secondary resize-none"
             />
           </div>
 

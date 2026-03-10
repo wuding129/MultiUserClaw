@@ -2,9 +2,41 @@ import { Router } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
-import { execSync } from "node:child_process";
+import { execSync, exec } from "node:child_process";
 import type { BridgeConfig } from "../config.js";
 import { asyncHandler } from "../utils.js";
+
+// Strip ANSI escape codes
+function stripAnsi(str: string): string {
+  return str.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, "").replace(/\x1B\][^\x07]*\x07/g, "");
+}
+
+interface SkillSearchResult {
+  slug: string;
+  url: string;
+  installs: string;
+}
+
+function parseSkillsFindOutput(raw: string): SkillSearchResult[] {
+  const clean = stripAnsi(raw);
+  const results: SkillSearchResult[] = [];
+  const lines = clean.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]?.trim();
+    if (!line) continue;
+    // Match lines like: owner/repo@skill-name  123 installs
+    const match = line.match(/^(\S+\/\S+@\S+)\s+(.+?\s+installs?)$/);
+    if (match) {
+      const slug = match[1]!;
+      const installs = match[2]!.trim();
+      // Next line is the URL
+      const urlLine = lines[i + 1]?.trim();
+      const url = urlLine?.startsWith("└") ? urlLine.replace(/^└\s*/, "") : `https://skills.sh/${slug.replace("@", "/")}`;
+      results.push({ slug, url, installs });
+    }
+  }
+  return results;
+}
 
 interface MarketplaceEntry {
   name: string;
@@ -251,6 +283,75 @@ export function marketplacesRoutes(_config: BridgeConfig): Router {
     fs.cpSync(pluginSourceDir, destDir, { recursive: true });
 
     res.json({ ok: true, path: destDir });
+  }));
+
+  // -----------------------------------------------------------------------
+  // Skills CLI integration (skills.sh)
+  // -----------------------------------------------------------------------
+
+  // POST /api/marketplaces/skills/search — search skills via `npx skills find`
+  router.post("/marketplaces/skills/search", asyncHandler(async (req, res) => {
+    const { query, limit } = req.body;
+    if (!query || typeof query !== "string") {
+      res.status(400).json({ detail: "query is required" });
+      return;
+    }
+    const safeQuery = query.replace(/[^\w\s\-]/g, "").slice(0, 100);
+    const safeLimit = Math.min(Math.max(Number(limit) || 10, 1), 30);
+
+    try {
+      const stdout = await new Promise<string>((resolve, reject) => {
+        exec(
+          `npx --yes skills find ${JSON.stringify(safeQuery)} --limit ${safeLimit}`,
+          { timeout: 30000, env: { ...process.env, NO_COLOR: "1" } },
+          (err, stdout, stderr) => {
+            // skills find exits 0 on success; parse stdout regardless
+            if (stdout) resolve(stdout);
+            else reject(new Error(stderr || (err?.message ?? "skills find failed")));
+          },
+        );
+      });
+      const results = parseSkillsFindOutput(stdout);
+      res.json({ results });
+    } catch (err) {
+      res.status(500).json({ detail: (err as Error).message });
+    }
+  }));
+
+  // POST /api/marketplaces/skills/install — install a skill via `npx skills add`
+  router.post("/marketplaces/skills/install", asyncHandler(async (req, res) => {
+    const { slug } = req.body;
+    if (!slug || typeof slug !== "string") {
+      res.status(400).json({ detail: "slug is required" });
+      return;
+    }
+    // Validate slug format: owner/repo@skill or owner/repo
+    if (!/^[\w\-.]+\/[\w\-.]+(@[\w\-.]+)?$/.test(slug)) {
+      res.status(400).json({ detail: "invalid slug format" });
+      return;
+    }
+
+    try {
+      const stdout = await new Promise<string>((resolve, reject) => {
+        exec(
+          `npx --yes skills add ${slug} -g -y`,
+          { timeout: 60000, env: { ...process.env, NO_COLOR: "1" } },
+          (err, stdout, stderr) => {
+            // npm warnings go to stderr but are not real errors
+            const cleanStderr = stripAnsi(stderr || "")
+              .split("\n")
+              .filter((l) => !l.startsWith("npm warn") && l.trim())
+              .join("\n")
+              .trim();
+            if (err && cleanStderr) reject(new Error(cleanStderr));
+            else resolve(stripAnsi(stdout || ""));
+          },
+        );
+      });
+      res.json({ ok: true, output: stdout.trim() });
+    } catch (err) {
+      res.status(500).json({ detail: (err as Error).message });
+    }
   }));
 
   return router;

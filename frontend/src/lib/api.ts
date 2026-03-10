@@ -81,6 +81,7 @@ export interface Skill {
   name: string
   description: string
   source?: string
+  disabled?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -321,12 +322,43 @@ export async function sendChatMessage(
   )
 }
 
+export async function uploadFileToWorkspace(
+  file: File,
+  targetDir = 'workspace/uploads',
+): Promise<{ name: string; path: string }> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('path', targetDir)
+
+  const token = getAccessToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${API_URL}/api/openclaw/filemanager/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Upload failed')
+  }
+  return res.json()
+}
+
 // ---------------------------------------------------------------------------
 // Other
 // ---------------------------------------------------------------------------
 
 export async function listSkills(): Promise<Skill[]> {
   return fetchJSON<Skill[]>('/api/openclaw/skills')
+}
+
+export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
+  await fetchJSON(`/api/openclaw/skills/${encodeURIComponent(name)}/toggle`, {
+    method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  })
 }
 
 export async function getStatus(): Promise<Record<string, unknown>> {
@@ -337,4 +369,301 @@ export async function ping(): Promise<{ message: string }> {
   const res = await fetch(`${API_URL}/api/ping`)
   if (!res.ok) throw new Error(`Ping failed: ${res.status}`)
   return res.json()
+}
+
+// ---------------------------------------------------------------------------
+// Cron Jobs
+// ---------------------------------------------------------------------------
+
+export interface CronJob {
+  id: string
+  name: string
+  enabled: boolean
+  schedule_kind: string
+  schedule_display: string
+  schedule_expr: string | null
+  schedule_every_ms: number | null
+  message: string
+  deliver: boolean
+  channel: string | null
+  to: string | null
+  next_run_at_ms: number | null
+  last_run_at_ms: number | null
+  last_status: string | null
+  last_error: string | null
+  created_at_ms: number
+}
+
+export async function listCronJobs(includeDisabled = true): Promise<CronJob[]> {
+  const params = includeDisabled ? '?include_disabled=true' : ''
+  return fetchJSON<CronJob[]>(`/api/openclaw/cron/jobs${params}`)
+}
+
+export async function createCronJob(params: {
+  name: string
+  message: string
+  every_seconds?: number
+  cron_expr?: string
+  at_iso?: string
+  deliver?: boolean
+  channel?: string
+  to?: string
+}): Promise<CronJob> {
+  return fetchJSON<CronJob>('/api/openclaw/cron/jobs', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function deleteCronJob(jobId: string): Promise<void> {
+  await fetchJSON<unknown>(`/api/openclaw/cron/jobs/${encodeURIComponent(jobId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function toggleCronJob(jobId: string, enabled: boolean): Promise<CronJob> {
+  return fetchJSON<CronJob>(
+    `/api/openclaw/cron/jobs/${encodeURIComponent(jobId)}/toggle`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    },
+  )
+}
+
+export async function runCronJob(jobId: string): Promise<void> {
+  await fetchJSON<unknown>(
+    `/api/openclaw/cron/jobs/${encodeURIComponent(jobId)}/run`,
+    { method: 'POST' },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Models
+// ---------------------------------------------------------------------------
+
+export interface ModelChoice {
+  id: string
+  name: string
+  provider: string
+  contextWindow?: number
+  reasoning?: boolean
+}
+
+export interface ModelsResult {
+  models: ModelChoice[]
+  configuredModel: string
+  configuredProviders: Record<string, unknown>
+}
+
+export async function listModels(): Promise<ModelsResult> {
+  return fetchJSON<ModelsResult>('/api/openclaw/models')
+}
+
+export async function updateModelsConfig(params: {
+  providers?: Record<string, unknown>
+  defaultModel?: string
+}): Promise<void> {
+  await fetchJSON<unknown>('/api/openclaw/models/config', {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+}
+
+// ---------------------------------------------------------------------------
+// File manager (~/.openclaw)
+// ---------------------------------------------------------------------------
+
+export interface FileEntry {
+  name: string
+  path: string
+  type: 'file' | 'directory'
+  size: number | null
+  content_type?: string | null
+  modified: string
+}
+
+export interface BrowseResult {
+  type: 'directory'
+  path: string
+  root: string
+  items: FileEntry[]
+}
+
+export interface FileContentResult {
+  type: 'file'
+  path: string
+  name: string
+  size: number
+  content_type: string
+  modified: string
+  content?: string
+}
+
+export async function browseFiles(dirPath = ''): Promise<BrowseResult> {
+  const params = dirPath ? `?path=${encodeURIComponent(dirPath)}` : ''
+  return fetchJSON<BrowseResult>(`/api/openclaw/filemanager/browse${params}`)
+}
+
+export async function downloadFileUrl(filePath: string): Promise<string> {
+  const token = getAccessToken()
+  const params = `?path=${encodeURIComponent(filePath)}`
+  return `${API_URL}/api/openclaw/filemanager/download${params}${token ? `&token=${token}` : ''}`
+}
+
+export async function uploadFile(file: File, dirPath = ''): Promise<FileEntry> {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (dirPath) formData.append('path', dirPath)
+
+  const token = getAccessToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${API_URL}/api/openclaw/filemanager/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Upload failed: ${body}`)
+  }
+  return res.json()
+}
+
+export async function deleteFile(filePath: string): Promise<void> {
+  await fetchJSON<unknown>(
+    `/api/openclaw/filemanager/delete?path=${encodeURIComponent(filePath)}`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function createDirectory(dirPath: string): Promise<void> {
+  await fetchJSON<unknown>(
+    `/api/openclaw/filemanager/mkdir?path=${encodeURIComponent(dirPath)}`,
+    { method: 'POST' },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Skills marketplace (skills.sh)
+// ---------------------------------------------------------------------------
+
+export interface SkillSearchResult {
+  slug: string
+  url: string
+  installs: string
+}
+
+export async function searchSkills(
+  query: string,
+  limit = 10,
+): Promise<{ results: SkillSearchResult[] }> {
+  return fetchJSON<{ results: SkillSearchResult[] }>(
+    '/api/openclaw/marketplaces/skills/search',
+    {
+      method: 'POST',
+      body: JSON.stringify({ query, limit }),
+    },
+  )
+}
+
+export async function installSkill(
+  slug: string,
+): Promise<{ ok: boolean; output: string }> {
+  return fetchJSON<{ ok: boolean; output: string }>(
+    '/api/openclaw/marketplaces/skills/install',
+    {
+      method: 'POST',
+      body: JSON.stringify({ slug }),
+    },
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Channels
+// ---------------------------------------------------------------------------
+
+export interface ChannelAccountSnapshot {
+  accountId: string
+  name?: string | null
+  enabled?: boolean | null
+  configured?: boolean | null
+  linked?: boolean | null
+  running?: boolean | null
+  connected?: boolean | null
+  reconnectAttempts?: number | null
+  lastConnectedAt?: number | null
+  lastError?: string | null
+  mode?: string
+  webhookUrl?: string
+  [key: string]: unknown
+}
+
+export interface ChannelMetaEntry {
+  id: string
+  label: string
+  detailLabel: string
+  systemImage?: string
+}
+
+export interface ChannelsStatusResult {
+  ts: number
+  channelOrder: string[]
+  channelLabels: Record<string, string>
+  channelDetailLabels?: Record<string, string>
+  channelSystemImages?: Record<string, string>
+  channelMeta?: ChannelMetaEntry[]
+  channels: Record<string, unknown>
+  channelAccounts: Record<string, ChannelAccountSnapshot[]>
+  channelDefaultAccountId: Record<string, string>
+}
+
+export async function getChannelsStatus(probe = false): Promise<ChannelsStatusResult> {
+  const params = probe ? '?probe=true' : ''
+  return fetchJSON<ChannelsStatusResult>(`/api/openclaw/channels/status${params}`)
+}
+
+export async function getConfiguredChannels(): Promise<{ success: boolean; channels: string[] }> {
+  return fetchJSON<{ success: boolean; channels: string[] }>('/api/openclaw/channels/configured')
+}
+
+export async function getChannelConfig(channelType: string): Promise<{ config: Record<string, unknown> | null }> {
+  return fetchJSON<{ config: Record<string, unknown> | null }>(
+    `/api/openclaw/channels/${encodeURIComponent(channelType)}/config`,
+  )
+}
+
+export async function saveChannelConfig(
+  channelType: string,
+  config: Record<string, unknown>,
+): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(
+    `/api/openclaw/channels/${encodeURIComponent(channelType)}/config`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    },
+  )
+}
+
+export async function deleteChannelConfig(channelType: string): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(
+    `/api/openclaw/channels/${encodeURIComponent(channelType)}/config`,
+    { method: 'DELETE' },
+  )
+}
+
+export async function logoutChannel(
+  channelType: string,
+  accountId?: string,
+): Promise<Record<string, unknown>> {
+  return fetchJSON<Record<string, unknown>>(
+    `/api/openclaw/channels/${encodeURIComponent(channelType)}/logout`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ accountId }),
+    },
+  )
 }

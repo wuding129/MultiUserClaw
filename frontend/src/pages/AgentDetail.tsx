@@ -3,18 +3,19 @@ import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Bot,
-  Settings,
   FileText,
   Loader2,
+  Eye,
+  EyeOff,
 } from 'lucide-react'
-import { fetchAgentDetail, fetchAgents, updateAgentSystemPrompt } from '../store/agents'
+import { fetchAgentDetail, fetchAgents } from '../store/agents'
+import { getAgentFile } from '../lib/api'
 import type { BackendAgent, AgentFile } from '../types/agent'
 
 interface AgentDetailData {
   agentId: string
   workspace: string
   files: AgentFile[]
-  systemPrompt: string
 }
 
 export default function AgentDetail() {
@@ -23,9 +24,8 @@ export default function AgentDetail() {
   const [loading, setLoading] = useState(true)
   const [agentInfo, setAgentInfo] = useState<BackendAgent | null>(null)
   const [detail, setDetail] = useState<AgentDetailData | null>(null)
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [form, setForm] = useState({ systemPrompt: '' })
+  const [expandedFiles, setExpandedFiles] = useState<Record<string, string | null>>({})
+  const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
     if (!id) return
@@ -36,9 +36,30 @@ export default function AgentDetail() {
       setDetail(d as AgentDetailData)
       const found = agents.find((a: BackendAgent) => a.id === id)
       setAgentInfo(found || null)
-      setForm({ systemPrompt: d.systemPrompt || '' })
     }).finally(() => setLoading(false))
   }, [id])
+
+  const toggleFile = async (fileName: string) => {
+    if (fileName in expandedFiles) {
+      setExpandedFiles(prev => {
+        const next = { ...prev }
+        delete next[fileName]
+        return next
+      })
+      return
+    }
+
+    if (!id) return
+    setLoadingFiles(prev => ({ ...prev, [fileName]: true }))
+    try {
+      const result = await getAgentFile(id, fileName)
+      setExpandedFiles(prev => ({ ...prev, [fileName]: result?.file?.content ?? '' }))
+    } catch {
+      setExpandedFiles(prev => ({ ...prev, [fileName]: '(无法加载文件内容)' }))
+    } finally {
+      setLoadingFiles(prev => ({ ...prev, [fileName]: false }))
+    }
+  }
 
   if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="animate-spin text-dark-text-secondary" size={32} /></div>
 
@@ -59,18 +80,6 @@ export default function AgentDetail() {
 
   const agentName = agentInfo?.name || id || ''
   const emoji = agentInfo?.identity?.emoji
-
-  const handleSave = async () => {
-    if (!id) return
-    setSaving(true)
-    try {
-      await updateAgentSystemPrompt(id, form.systemPrompt)
-      setDetail(prev => prev ? { ...prev, systemPrompt: form.systemPrompt } : prev)
-      setEditing(false)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const formatSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`
@@ -103,20 +112,13 @@ export default function AgentDetail() {
             <p className="text-sm text-dark-text-secondary">{id}</p>
           </div>
         </div>
-        <button
-          onClick={() => setEditing(!editing)}
-          className="flex items-center gap-2 rounded-lg border border-dark-border px-4 py-2 text-sm text-dark-text-secondary hover:text-dark-text transition-colors"
-        >
-          <Settings size={14} />
-          配置
-        </button>
       </div>
 
       {/* Workspace Info */}
       {detail?.workspace && (
         <div className="mb-6 rounded-xl border border-dark-border bg-dark-card p-4">
           <div className="flex items-center gap-2 mb-2">
-            <Settings size={16} className="text-dark-text-secondary" />
+            <FileText size={16} className="text-dark-text-secondary" />
             <span className="text-sm font-medium text-dark-text">工作区路径</span>
           </div>
           <code className="text-sm text-dark-text-secondary">{detail.workspace}</code>
@@ -125,69 +127,59 @@ export default function AgentDetail() {
 
       {/* Files */}
       {detail?.files && detail.files.length > 0 && (
-        <div className="mb-6 rounded-xl border border-dark-border bg-dark-card p-4">
+        <div className="rounded-xl border border-dark-border bg-dark-card p-4">
           <div className="flex items-center gap-2 mb-3">
             <FileText size={16} className="text-dark-text-secondary" />
             <span className="text-sm font-medium text-dark-text">配置文件</span>
           </div>
           <div className="space-y-2">
-            {detail.files.map(file => (
-              <div key={file.name} className="flex items-center justify-between rounded-lg bg-dark-bg px-4 py-2">
-                <span className={`text-sm ${file.missing ? 'text-dark-text-secondary line-through' : 'text-dark-text'}`}>
-                  {file.name}
-                </span>
-                <span className="text-xs text-dark-text-secondary">
-                  {file.missing ? '缺失' : formatSize(file.size)}
-                </span>
-              </div>
-            ))}
+            {detail.files.map(file => {
+              const isExpanded = file.name in expandedFiles
+              const isLoading = loadingFiles[file.name]
+              return (
+                <div key={file.name}>
+                  <div className="flex items-center justify-between rounded-lg bg-dark-bg px-4 py-2">
+                    <span className={`text-sm ${file.missing ? 'text-dark-text-secondary line-through' : 'text-dark-text'}`}>
+                      {file.name}
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-dark-text-secondary">
+                        {file.missing ? '缺失' : formatSize(file.size)}
+                      </span>
+                      {!file.missing && (
+                        <button
+                          onClick={() => toggleFile(file.name)}
+                          disabled={isLoading}
+                          className="flex items-center gap-1 text-xs text-accent-blue/70 hover:text-accent-blue disabled:opacity-50 transition-colors"
+                        >
+                          {isLoading ? (
+                            <Loader2 size={13} className="animate-spin" />
+                          ) : isExpanded ? (
+                            <>
+                              <EyeOff size={13} />
+                              收起
+                            </>
+                          ) : (
+                            <>
+                              <Eye size={13} />
+                              查看
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  {isExpanded && expandedFiles[file.name] !== null && (
+                    <pre className="mt-1 mb-1 mx-1 whitespace-pre-wrap rounded-lg bg-dark-bg/60 border border-dark-border p-4 text-sm text-dark-text leading-relaxed font-mono max-h-96 overflow-y-auto">
+                      {expandedFiles[file.name]}
+                    </pre>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
-
-      {/* System Prompt / Edit */}
-      <div className="rounded-xl border border-dark-border bg-dark-card p-6">
-        <h2 className="mb-4 text-base font-semibold text-dark-text">
-          {editing ? '编辑系统提示词' : '系统提示词 (SOUL.md)'}
-        </h2>
-
-        {editing ? (
-          <div className="space-y-4">
-            <textarea
-              value={form.systemPrompt}
-              onChange={e => setForm(f => ({ ...f, systemPrompt: e.target.value }))}
-              rows={10}
-              className="w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-2 text-sm text-dark-text outline-none focus:border-accent-blue resize-none font-mono"
-            />
-            <div className="flex gap-3">
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex items-center gap-2 rounded-lg bg-accent-blue px-4 py-2 text-sm font-medium text-white hover:bg-accent-blue/90 disabled:opacity-50"
-              >
-                {saving && <Loader2 size={14} className="animate-spin" />}
-                保存
-              </button>
-              <button
-                onClick={() => { setEditing(false); setForm({ systemPrompt: detail?.systemPrompt || '' }) }}
-                className="rounded-lg border border-dark-border px-4 py-2 text-sm text-dark-text-secondary hover:text-dark-text"
-              >
-                取消
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div>
-            {detail?.systemPrompt ? (
-              <pre className="whitespace-pre-wrap rounded-lg bg-dark-bg p-4 text-sm text-dark-text leading-relaxed font-mono">
-                {detail.systemPrompt}
-              </pre>
-            ) : (
-              <p className="text-sm text-dark-text-secondary">暂无系统提示词</p>
-            )}
-          </div>
-        )}
-      </div>
     </div>
   )
 }

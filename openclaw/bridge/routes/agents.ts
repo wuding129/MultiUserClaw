@@ -1,4 +1,7 @@
 import { Router } from "express";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 import type { BridgeGatewayClient } from "../gateway-client.js";
 import { asyncHandler } from "../utils.js";
 
@@ -129,6 +132,78 @@ export function agentsRoutes(client: BridgeGatewayClient): Router {
         res.status(500).json({ detail: msg });
       }
     }
+  }));
+
+  // GET /api/models — list available models from gateway + configured model
+  router.get("/models", asyncHandler(async (_req, res) => {
+    try {
+      // Get models from gateway RPC
+      const result = await client.request<{ models: Array<{ id: string; name: string; provider: string; contextWindow?: number; reasoning?: boolean }> }>(
+        "models.list",
+        {},
+      );
+
+      // Read openclaw.json to find the configured/default model
+      const openclawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw");
+      const configPath = path.join(openclawHome, "openclaw.json");
+      let configuredModel = "";
+      let configuredProviders: Record<string, unknown> = {};
+
+      if (fs.existsSync(configPath)) {
+        try {
+          const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+          configuredModel = cfg?.agents?.defaults?.model || "";
+          configuredProviders = cfg?.models?.providers || {};
+        } catch { /* ignore parse errors */ }
+      }
+
+      res.json({
+        models: result?.models || [],
+        configuredModel,
+        configuredProviders,
+      });
+    } catch (err) {
+      res.status(500).json({ detail: (err as Error).message });
+    }
+  }));
+
+  // PUT /api/models/config — update models config in openclaw.json
+  router.put("/models/config", asyncHandler(async (req, res) => {
+    const { providers, defaultModel } = req.body;
+
+    const openclawHome = process.env.OPENCLAW_HOME || path.join(os.homedir(), ".openclaw");
+    const configPath = path.join(openclawHome, "openclaw.json");
+
+    let cfg: Record<string, unknown> = {};
+    if (fs.existsSync(configPath)) {
+      try {
+        cfg = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+      } catch { /* start fresh */ }
+    }
+
+    // Update providers if provided
+    if (providers !== undefined) {
+      if (!cfg.models || typeof cfg.models !== "object") {
+        cfg.models = { mode: "replace", providers: {} };
+      }
+      (cfg.models as Record<string, unknown>).providers = providers;
+    }
+
+    // Update default model if provided
+    if (defaultModel !== undefined) {
+      if (!cfg.agents || typeof cfg.agents !== "object") {
+        cfg.agents = { defaults: {} };
+      }
+      const agents = cfg.agents as Record<string, unknown>;
+      if (!agents.defaults || typeof agents.defaults !== "object") {
+        agents.defaults = {};
+      }
+      (agents.defaults as Record<string, unknown>).model = defaultModel;
+    }
+
+    fs.mkdirSync(openclawHome, { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2), "utf-8");
+    res.json({ ok: true });
   }));
 
   return router;

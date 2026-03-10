@@ -50,13 +50,20 @@ async def chat_completions(
     raw_body = await request.body()
     raw_json = _json.loads(raw_body)
 
+    import logging
+    # Log extra keys sent by openclaw that we don't handle
+    known_keys = {"model", "messages", "max_tokens", "temperature", "tools", "tool_choice", "stream"}
+    extra_keys = set(raw_json.keys()) - known_keys
+    if extra_keys:
+        logging.warning(f"LLM proxy: extra request keys from client: {extra_keys}")
+
     req = ChatCompletionRequest(**raw_json)
 
     result = await proxy_chat_completion(
         db=db,
         container_token=container_token,
         model=req.model,
-        messages=[m.model_dump(exclude_none=True) for m in req.messages],
+        messages=raw_json.get("messages", []),  # pass raw messages to preserve all fields (e.g. reasoning_content)
         max_tokens=req.max_tokens,
         temperature=req.temperature,
         tools=req.tools,
