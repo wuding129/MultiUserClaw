@@ -96,22 +96,6 @@ export default function Sidebar() {
               const Icon = item.icon
               const isActive = location.pathname === item.to ||
                 (item.to !== '/dashboard' && location.pathname.startsWith(item.to))
-<<<<<<< HEAD
-
-              if (item.disabled) {
-                return (
-                  <div
-                    key={item.to}
-                    className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-dark-text-secondary/50 cursor-not-allowed"
-                  >
-                    <Icon size={18} />
-                    <span>{item.label}</span>
-                  </div>
-                )
-              }
-
-=======
->>>>>>> main
               return (
                 <NavLink
                   key={item.to}
