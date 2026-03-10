@@ -74,8 +74,7 @@ async def create_container(db: AsyncSession, user_id: str) -> Container:
     _ensure_network()
     client = _docker()
 
-    workspace_vol = f"openclaw-workspace-{short_id}"
-    sessions_vol = f"openclaw-sessions-{short_id}"
+    data_vol = f"openclaw-data-{short_id}"
     container_name = f"openclaw-user-{short_id}"
 
     # Remove any stale container with the same name
@@ -97,8 +96,7 @@ async def create_container(db: AsyncSession, user_id: str) -> Container:
                 "NANOBOT_AGENTS__DEFAULTS__MODEL": settings.default_model,
             },
             mounts=[
-                docker.types.Mount("/root/.openclaw/workspace", workspace_vol, type="volume"),
-                docker.types.Mount("/root/.openclaw/sessions", sessions_vol, type="volume"),
+                docker.types.Mount("/root/.openclaw", data_vol, type="volume"),
             ],
             network=settings.container_network,
             mem_limit=settings.container_memory_limit,
