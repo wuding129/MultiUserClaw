@@ -42,6 +42,9 @@ _CUSTOM_BASE_PROVIDERS: dict[str, tuple[str, str]] = {
     "aihubmix": ("https://aihubmix.com/v1", "aihubmix_api_key"),
 }
 
+# Models that only accept temperature=1 (or don't support temperature at all)
+_FIXED_TEMPERATURE_MODELS = {"kimi-k2.5", "kimi-k2-thinking", "kimi-k2-thinking-turbo"}
+
 
 def _resolve_provider(model: str) -> tuple[str, str, str | None]:
     """Return (litellm_model_name, api_key, api_base_or_None) for the given model."""
@@ -157,10 +160,13 @@ async def proxy_chat_completion(
         "model": litellm_model,
         "messages": messages,
         "max_tokens": max_tokens,
-        "temperature": temperature,
         "api_key": api_key,
         "stream": stream,
     }
+    # Some models (e.g. kimi-k2.5) only accept temperature=1; skip the param for them.
+    model_base = model.split("/")[-1].lower()
+    if model_base not in _FIXED_TEMPERATURE_MODELS:
+        kwargs["temperature"] = temperature
     if api_base:
         kwargs["api_base"] = api_base
     if tools:
@@ -170,6 +176,9 @@ async def proxy_chat_completion(
     try:
         response = await acompletion(**kwargs)
     except Exception as e:
+        import logging
+        logging.error(f"LLM proxy error for model={model}: {e}")
+        logging.error(f"LLM proxy kwargs (no messages): { {k: v for k, v in kwargs.items() if k != 'messages'} }")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"LLM provider error: {e}",
