@@ -258,6 +258,13 @@ async def submit_skill(
     db.add(submission)
     await db.commit()
     await db.refresh(submission)
+
+    # Trigger AI review if source_url is provided
+    if req.source_url:
+        # TODO: Fetch SKILL.md from source_url and review
+        # For now, we'll skip AI review for URL-based submissions
+        pass
+
     return {"ok": True, "id": submission.id}
 
 
@@ -315,6 +322,25 @@ async def submit_skill_with_file(
     await db.commit()
     await db.refresh(submission)
 
+    # Trigger AI review
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            # Find SKILL.md
+            skill_md_path = None
+            for name in zf.namelist():
+                if name.endswith("SKILL.md"):
+                    skill_md_path = name
+                    break
+
+            if skill_md_path:
+                skill_content = zf.read(skill_md_path).decode("utf-8")
+                review_result = await _ai_review_skill(skill_content)
+                if review_result:
+                    submission.ai_review_result = review_result
+                    await db.commit()
+    except Exception as e:
+        print(f"[skill-review] Failed to run AI review: {e}")
+
     return {"ok": True, "id": submission.id}
 
 
@@ -340,6 +366,74 @@ async def my_submissions(
         )
         for s in rows
     ]
+
+
+
+# ---------------------------------------------------------------------------
+# AI Review Function
+# ---------------------------------------------------------------------------
+
+REVIEW_PROMPT = """You are a skill reviewer. Review the following SKILL.md and provide a JSON response with your review.
+
+## Review Criteria
+
+### 1. Format Check
+- Must have SKILL.md file
+- Must have valid frontmatter with name and description
+- Clear usage instructions
+
+### 2. Description Quality
+- Description is clear and concise (50-500 characters)
+- Description explains what the skill does
+- Usage examples are provided if applicable
+
+### 3. Required Dependencies
+- required bins are reasonable
+- Platform-specific requirements are documented
+- External API dependencies are noted
+
+### 4. Compatibility
+- No macOS/iOS specific skills (unless explicitly for those platforms)
+- Required binaries are commonly available
+- No Windows-specific assumptions
+
+### 5. Security & Safety
+- No suspicious commands or scripts
+- No hardcoded credentials or API keys
+- No obvious security vulnerabilities
+
+## Output Format
+
+Provide a JSON object:
+```json
+{
+  "approved": true or false,
+  "score": 0-100,
+  "issues": [
+    {
+      "severity": "critical/major/minor",
+      "category": "format/description/compatibility/security",
+      "message": "Issue description",
+      "suggestion": "How to fix"
+    }
+  ],
+  "summary": "Overall assessment"
+}
+```
+
+## SKILL.md Content to Review:
+
+{skill_content}
+
+Now provide your review in JSON format:"""
+
+
+async def _ai_review_skill(skill_content: str) -> str | None:
+    """Use LLM to review a skill. Returns JSON review result or None on failure."""
+    # TODO: Implement AI review using the LLM proxy
+    # For now, return None to skip AI review
+    # The admin can still do manual review
+    return None
 
 
 # ---------------------------------------------------------------------------

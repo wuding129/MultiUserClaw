@@ -117,6 +117,25 @@ async function main(): Promise<void> {
   await client.start();
   console.log("[bridge] Connected to gateway");
 
+  // Create skill-reviewer agent for admin if it doesn't exist
+  try {
+    const agents = await client.request<Array<{ id: string }>>("agents.list", {});
+    const hasReviewer = agents.some((a) => a.id === "skill-reviewer");
+    if (!hasReviewer) {
+      console.log("[bridge] Creating skill-reviewer agent...");
+      await client.request("agents.create", {
+        name: "skill-reviewer",
+        workspace: "~/.openclaw/workspace-skill-reviewer",
+        emoji: "🔍",
+      });
+      console.log("[bridge] Created skill-reviewer agent");
+    } else {
+      console.log("[bridge] skill-reviewer agent already exists");
+    }
+  } catch (err) {
+    console.error("[bridge] Failed to create skill-reviewer agent:", err);
+  }
+
   // Start bridge HTTP server
   const server = createServer(client, config);
   server.listen(config.bridgePort, "0.0.0.0", () => {
