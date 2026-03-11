@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.db.engine import engine
 from app.db.models import Base
-from app.routes import auth, llm, proxy, admin, skills
+from app.routes import auth, llm, proxy, admin, skills, notifications
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,8 @@ app.include_router(proxy.router)
 app.include_router(admin.router)
 app.include_router(skills.user_router)
 app.include_router(skills.admin_router)
+app.include_router(notifications.user_router)
+app.include_router(notifications.internal_router)
 
 
 @app.get("/api/ping")

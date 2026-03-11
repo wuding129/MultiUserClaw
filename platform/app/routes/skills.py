@@ -73,9 +73,12 @@ class SkillSubmissionOut(BaseModel):
     skill_name: str
     description: str
     source_url: str | None = None
+    file_path: str | None = None
     status: str
+    ai_review_result: str | None = None
     admin_notes: str | None = None
     reviewed_by: str | None = None
+    version: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -244,7 +247,7 @@ async def submit_skill(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_user_flexible),
 ):
-    """Submit a skill for admin review."""
+    """Submit a skill for admin review (via source_url)."""
     submission = SkillSubmission(
         user_id=user.id,
         skill_name=req.skill_name,
@@ -255,6 +258,63 @@ async def submit_skill(
     db.add(submission)
     await db.commit()
     await db.refresh(submission)
+    return {"ok": True, "id": submission.id}
+
+
+# Temp directory for skill submissions
+SUBMISSIONS_TEMP_DIR = Path("/tmp/skill-submissions")
+
+
+@user_router.post("/submit/upload")
+async def submit_skill_with_file(
+    skill_name: str = Form(...),
+    description: str = Form(""),
+    source_url: str | None = Form(None),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_user_flexible),
+):
+    """Submit a skill for admin review (via file upload)."""
+    # Validate file is a zip
+    if not file.filename.endswith(".zip"):
+        raise HTTPException(status_code=400, detail="File must be a .zip archive")
+
+    # Create temp directory for this submission
+    submission_id = str(uuid.uuid4())
+    temp_dir = SUBMISSIONS_TEMP_DIR / submission_id
+    temp_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save uploaded file
+    file_path = temp_dir / file.filename
+    content = await file.read()
+    file_path.write_bytes(content)
+
+    # Verify it's a valid zip with SKILL.md
+    try:
+        with zipfile.ZipFile(file_path) as zf:
+            names = zf.namelist()
+            if "SKILL.md" not in names:
+                # Try one level deep
+                has_skill_md = any("SKILL.md" in n for n in names)
+                if not has_skill_md:
+                    raise HTTPException(status_code=400, detail="Zip must contain SKILL.md file")
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Invalid zip file")
+
+    # Create submission record
+    submission = SkillSubmission(
+        id=submission_id,
+        user_id=user.id,
+        skill_name=skill_name,
+        description=description,
+        source_url=source_url,
+        file_path=str(file_path),
+        status="pending",
+    )
+    db.add(submission)
+    await db.commit()
+    await db.refresh(submission)
+
     return {"ok": True, "id": submission.id}
 
 
@@ -273,8 +333,9 @@ async def my_submissions(
         SkillSubmissionOut(
             id=s.id, user_id=s.user_id, skill_name=s.skill_name,
             description=s.description, source_url=s.source_url,
-            status=s.status, admin_notes=s.admin_notes,
-            reviewed_by=s.reviewed_by,
+            file_path=s.file_path, status=s.status,
+            ai_review_result=s.ai_review_result, admin_notes=s.admin_notes,
+            reviewed_by=s.reviewed_by, version=s.version,
             created_at=s.created_at, updated_at=s.updated_at,
         )
         for s in rows

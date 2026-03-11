@@ -658,6 +658,34 @@ export async function submitSkill(params: {
   })
 }
 
+export async function submitSkillWithFile(
+  skillName: string,
+  description: string,
+  sourceUrl: string | undefined,
+  file: File,
+): Promise<{ ok: boolean; id: string }> {
+  const formData = new FormData()
+  formData.append('skill_name', skillName)
+  formData.append('description', description)
+  if (sourceUrl) {
+    formData.append('source_url', sourceUrl)
+  }
+  formData.append('file', file)
+
+  const response = await fetch('/api/skills/submit/upload', {
+    method: 'POST',
+    body: formData,
+    headers: {
+      'Authorization': `Bearer ${localStorage.getItem('token')}`,
+    },
+  })
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Upload failed' }))
+    throw new Error(err.detail || 'Upload failed')
+  }
+  return response.json()
+}
+
 export async function mySubmissions(): Promise<SkillSubmission[]> {
   return fetchJSON<SkillSubmission[]>('/api/skills/submissions/mine')
 }
@@ -822,4 +850,38 @@ export async function logoutChannel(
       body: JSON.stringify({ accountId }),
     },
   )
+}
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+export interface Notification {
+  id: string
+  user_id: string
+  type: string
+  title: string
+  content: string
+  link: string | null
+  is_read: boolean
+  created_at: string
+}
+
+export async function listNotifications(unreadOnly = false): Promise<Notification[]> {
+  return fetchJSON<Notification[]>(`/api/notifications?unread_only=${unreadOnly}`)
+}
+
+export async function getUnreadCount(): Promise<{ count: number }> {
+  return fetchJSON<{ count: number }>('/api/notifications/unread-count')
+}
+
+export async function markNotificationsAsRead(ids: string[]): Promise<void> {
+  await fetchJSON('/api/notifications/read', {
+    method: 'POST',
+    body: JSON.stringify({ notification_ids: ids }),
+  })
+}
+
+export async function markAllNotificationsAsRead(): Promise<void> {
+  await fetchJSON('/api/notifications/read-all', { method: 'POST' })
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   listSkills, searchSkills, installSkill, toggleSkill,
-  listCuratedSkills, installCuratedSkill, submitSkill, mySubmissions,
+  listCuratedSkills, installCuratedSkill, submitSkill, submitSkillWithFile, mySubmissions,
 } from '../lib/api'
 import type { Skill, SkillSearchResult, CuratedSkill, SkillSubmission } from '../lib/api'
 import {
@@ -42,6 +42,7 @@ export default function SkillStore() {
   const [submitName, setSubmitName] = useState('')
   const [submitDesc, setSubmitDesc] = useState('')
   const [submitUrl, setSubmitUrl] = useState('')
+  const [submitFile, setSubmitFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [submissions, setSubmissions] = useState<SkillSubmission[]>([])
 
@@ -130,14 +131,26 @@ export default function SkillStore() {
     if (!submitName.trim() || submitting) return
     setSubmitting(true)
     try {
-      await submitSkill({
-        skill_name: submitName.trim(),
-        description: submitDesc.trim(),
-        source_url: submitUrl.trim() || undefined,
-      })
+      if (submitFile) {
+        // Upload with file
+        await submitSkillWithFile(
+          submitName.trim(),
+          submitDesc.trim(),
+          submitUrl.trim() || undefined,
+          submitFile,
+        )
+      } else {
+        // Submit via source_url only
+        await submitSkill({
+          skill_name: submitName.trim(),
+          description: submitDesc.trim(),
+          source_url: submitUrl.trim() || undefined,
+        })
+      }
       setSubmitName('')
       setSubmitDesc('')
       setSubmitUrl('')
+      setSubmitFile(null)
       setShowSubmit(false)
       mySubmissions().then(setSubmissions).catch(() => {})
     } catch {
@@ -299,9 +312,23 @@ export default function SkillStore() {
                     type="text"
                     value={submitUrl}
                     onChange={e => setSubmitUrl(e.target.value)}
-                    placeholder="marketplace slug 或 git URL"
+                    placeholder="GitHub/GitLab 仓库地址"
                     className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-dark-text outline-none focus:border-accent-blue"
                   />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-dark-text-secondary mb-1">或上传技能包（ZIP）</label>
+                  <input
+                    type="file"
+                    accept=".zip"
+                    onChange={e => setSubmitFile(e.target.files?.[0] || null)}
+                    className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-dark-text file:mr-2 file:px-2 file:rounded file:border-0 file:bg-accent-blue file:text-white file:text-xs file:cursor-pointer"
+                  />
+                  {submitFile && (
+                    <div className="mt-1 text-xs text-accent-blue">
+                      已选择: {submitFile.name}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="submit"

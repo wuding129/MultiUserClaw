@@ -108,8 +108,26 @@ class SkillSubmission(Base):
     skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     source_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    file_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # temp uploaded zip path
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending | approved | rejected
+    ai_review_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # AI review JSON result
     admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    version: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # e.g., v1.0 after approved
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Notification(Base):
+    """User notifications."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(32), nullable=False)  # skill_approved, skill_rejected, system, etc.
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    link: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)  # optional link to related page
+    is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
