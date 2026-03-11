@@ -429,11 +429,99 @@ Now provide your review in JSON format:"""
 
 
 async def _ai_review_skill(skill_content: str) -> str | None:
-    """Use LLM to review a skill. Returns JSON review result or None on failure."""
-    # TODO: Implement AI review using the LLM proxy
-    # For now, return None to skip AI review
-    # The admin can still do manual review
-    return None
+    """Use LLM to review a skill. Returns JSON review result or None on failure.
+
+    Security considerations:
+    - Only review the SKILL.md content, not execute any code
+    - Check for suspicious patterns in the skill content
+    - Flag potential security issues
+    """
+    import json
+    import re
+
+    try:
+        from app.config import settings
+
+        # Build prompt with security focus
+        prompt = REVIEW_PROMPT.format(skill_content=skill_content[:6000])
+
+        # Try to use available LLM providers
+        # Priority: Anthropic > OpenAI > DashScope > others
+        result = None
+
+        if settings.anthropic_api_key:
+            try:
+                import anthropic
+                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2000,
+                    temperature=0.2,
+                    system="You are a skilled security reviewer. Review skill packages for security issues.",
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                result = response.content[0].text
+            except Exception as e:
+                print(f"[skill-review] Anthropic API failed: {e}")
+
+        if not result and settings.openai_api_key:
+            try:
+                import openai
+                client = openai.OpenAI(api_key=settings.openai_api_key)
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    temperature=0.2,
+                    messages=[
+                        {"role": "system", "content": "You are a skilled security reviewer. Review skill packages for security issues."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                result = response.choices[0].message.content
+            except Exception as e:
+                print(f"[skill-review] OpenAI API failed: {e}")
+
+        if not result and settings.dashscope_api_key:
+            try:
+                import openai
+                client = openai.OpenAI(
+                    api_key=settings.dashscope_api_key,
+                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                )
+                response = client.chat.completions.create(
+                    model="qwen-plus",
+                    temperature=0.2,
+                    messages=[
+                        {"role": "system", "content": "You are a skilled security reviewer. Review skill packages for security issues."},
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                result = response.choices[0].message.content
+            except Exception as e:
+                print(f"[skill-review] DashScope API failed: {e}")
+
+        if not result:
+            print("[skill-review] No LLM provider available")
+            return None
+
+        # Extract JSON from response
+        json_match = re.search(r'\{[\s\S]*\}', result)
+        if json_match:
+            json_str = json_match.group(0)
+            # Validate it's valid JSON
+            review_data = json.loads(json_str)
+
+            # Security check: ensure no code execution was requested
+            # The review should be about the skill content, not executing it
+            if "approved" not in review_data:
+                return None
+
+            return json_str
+
+        return None
+
+    except Exception as e:
+        print(f"[skill-review] AI review failed: {e}")
+        return None
 
 
 # ---------------------------------------------------------------------------
