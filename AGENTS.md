@@ -123,39 +123,84 @@ pnpm gateway:dev    # Gateway only
 
 ### Python (Platform)
 
+**Formatter & Linter:**
 - **Formatter**: ruff (line length: 100)
 - **Linter**: ruff with rules `E, F, I, N, W` (ignore E501)
-- **Type hints**: Use Pydantic v2 models, prefer explicit types
-- **Imports**: Follow PEP 8, use isort-compatible ordering
-- **Async**: Use `asyncpg` for async PostgreSQL, `httpx` for HTTP
-- **Error handling**: Never use bare `except:`, always catch specific exceptions
-- **Testing**: pytest with pytest-asyncio (`asyncio_mode = "auto"`)
 
-Example:
-```python
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+**Type Hints:**
+- Use Pydantic v2 models for request/response validation
+- Prefer explicit types over `Any`
+- Use `Union[X, Y]` instead of `X | Y` for Python 3.11 compatibility
+- Optional parameters: `X | None` (3.11+) or `Optional[X]` (legacy)
 
-router = APIRouter(prefix="/api", tags=["auth"])
+**Imports:**
+- Follow PEP 8, use isort-compatible ordering
+- Order: standard library → third-party → local application
+- Example:
+  ```python
+  import asyncio
+  from pathlib import Path
 
-class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=50)
-    password: str = Field(..., min_length=8)
-```
+  import httpx
+  from fastapi import APIRouter, Depends, HTTPException
+  from pydantic import BaseModel, Field
+
+  from app.db.models import Container
+  from app.config import settings
+  ```
+
+**Async:**
+- Use `asyncpg` for async PostgreSQL, `httpx` for HTTP
+- Always use `async/await` in route handlers
+- Use `AsyncSession` for SQLAlchemy
+
+**Error Handling:**
+- Never use bare `except:`, always catch specific exceptions
+- Use custom exception classes for domain errors
+- Log errors with context using `logging` module
+- Return appropriate HTTP status codes (400 for bad request, 404 for not found, 500 for server errors)
+- Example:
+  ```python
+  from fastapi import HTTPException
+
+  async def get_user(db: AsyncSession, user_id: str) -> User:
+      result = await db.execute(select(User).where(User.id == user_id))
+      user = result.scalar_one_or_none()
+      if user is None:
+          raise HTTPException(status_code=404, detail="User not found")
+      return user
+  ```
+
+**Testing:**
+- pytest with pytest-asyncio (`asyncio_mode = "auto"`)
+- Use `@pytest.mark.asyncio` for async tests
+- Place tests in `tests/` directories
 
 ### TypeScript/JavaScript (Frontend & OpenClaw)
 
-- **Formatter**: oxfmt (OpenClaw), Prettier-compatible (Frontend)
-- **Linter**: oxlint (type-aware), ESLint (Frontend)
-- **Strict typing**: Avoid `any`, use explicit types
-- **ESM**: Use ES modules (`"type": "module"`)
-- **Node version**: 22+ for OpenClaw
+**Formatter & Linter:**
+- **OpenClaw**: oxfmt + oxlint (type-aware)
+- **Frontend**: Prettier + ESLint
+
+**Strict Typing:**
+- Avoid `any`, use explicit types
+- Use `unknown` when type is uncertain, then narrow with type guards
+- Prefer interfaces over types for object shapes
+
+**ESM:**
+- Use ES modules (`"type": "module"`)
+- Use explicit `.js` extensions in imports when using ESM
+
+**Node Version:**
+- OpenClaw requires Node 22+
 
 #### Frontend Specific
+
 - **Framework**: React 19 with hooks
 - **Styling**: Tailwind CSS v4
 - **State**: Zustand for global state
 - **Components**: Functional components with TypeScript
+- **Imports**: Use path aliases (`@/` for src root)
 
 Example:
 ```typescript
@@ -176,18 +221,33 @@ export function ChatWindow() {
 ```
 
 #### OpenClaw Specific
+
 - **Tool schemas**: Use TypeBox for validation schemas
 - **Avoid**: `anyOf`/`oneOf`/`allOf` in tool schemas, use `stringEnum` instead
 - **File size**: Aim for <500 LOC per file, split when needed
 
 ### General Conventions
 
-- **Naming**:
-  - Python: `snake_case` for functions/variables, `PascalCase` for classes
-  - TypeScript: `camelCase` for variables/functions, `PascalCase` for components/classes
-- **Error handling**: Always log errors with context, use proper exception types
-- **Configuration**: Environment variables with sensible defaults, use `.env` files
-- **Secrets**: Never commit secrets, use environment variables or .env files
+**Naming:**
+- Python: `snake_case` for functions/variables, `PascalCase` for classes
+- TypeScript: `camelCase` for variables/functions, `PascalCase` for components/classes
+- React Components: `PascalCase`
+- File names: `snake_case.py` for Python, `camelCase.ts` for TypeScript
+
+**Error Handling:**
+- Always log errors with context, use proper exception types
+- Include correlation IDs or request IDs in error logs
+- Never expose internal error details to clients in production
+
+**Configuration:**
+- Environment variables with sensible defaults
+- Use `.env` files for local development (add to `.gitignore`)
+- Platform config: use `pydantic-settings` with `BaseSettings`
+
+**Secrets:**
+- Never commit secrets, use environment variables
+- Store secrets in `.env` files (never commit these)
+- Use `.env.example` for required variables template
 
 ---
 
