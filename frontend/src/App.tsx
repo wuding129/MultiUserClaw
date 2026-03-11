@@ -10,6 +10,7 @@ import Channels from './pages/Channels'
 import AIModels from './pages/AIModels'
 import Sessions from './pages/Sessions'
 import Admin from './pages/Admin'
+import AdminSkills from './pages/AdminSkills'
 import Chat from './pages/Chat'
 import CronJobs from './pages/CronJobs'
 import FileManager from './pages/FileManager'
@@ -40,6 +41,7 @@ export default function App() {
         <Route path="sessions" element={<Sessions />} />
         <Route path="cron" element={<CronJobs />} />
         <Route path="admin" element={<Admin />} />
+        <Route path="admin-skills" element={<AdminSkills />} />
         <Route path="nodes" element={<Nodes />} />
         <Route path="settings" element={<SystemSettings />} />
       </Route>

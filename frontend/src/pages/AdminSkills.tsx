@@ -1,0 +1,441 @@
+import { useState, useEffect } from 'react'
+import {
+  adminListCuratedSkills, adminUploadCuratedSkill, adminUpdateCuratedSkill,
+  adminDeleteCuratedSkill, adminListSubmissions, adminApproveSubmission,
+  adminRejectSubmission,
+} from '../lib/api'
+import type { CuratedSkill, SkillSubmission } from '../lib/api'
+import {
+  Zap, Loader2, Plus, Trash2, Star, Check, X, Upload,
+  ChevronDown, ChevronUp, Edit2,
+} from 'lucide-react'
+
+type AdminTab = 'curated' | 'submissions'
+
+export default function AdminSkills() {
+  const [tab, setTab] = useState<AdminTab>('curated')
+
+  // Curated skills
+  const [skills, setSkills] = useState<CuratedSkill[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Submissions
+  const [submissions, setSubmissions] = useState<SkillSubmission[]>([])
+  const [loadingSubs, setLoadingSubs] = useState(true)
+  const [statusFilter, setStatusFilter] = useState<string>('pending')
+
+  // Add form
+  const [showAdd, setShowAdd] = useState(false)
+  const [addName, setAddName] = useState('')
+  const [addDesc, setAddDesc] = useState('')
+  const [addAuthor, setAddAuthor] = useState('')
+  const [addCategory, setAddCategory] = useState('general')
+  const [addFeatured, setAddFeatured] = useState(false)
+  const [addFile, setAddFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
+
+  // Edit
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editFields, setEditFields] = useState<Record<string, string | boolean>>({})
+  const [saving, setSaving] = useState(false)
+
+  // Review
+  const [reviewNotes, setReviewNotes] = useState('')
+  const [reviewing, setReviewing] = useState<string | null>(null)
+
+  const refreshSkills = () => {
+    adminListCuratedSkills().then(setSkills).catch(() => setSkills([])).finally(() => setLoading(false))
+  }
+
+  const refreshSubmissions = () => {
+    adminListSubmissions(statusFilter || undefined)
+      .then(setSubmissions)
+      .catch(() => setSubmissions([]))
+      .finally(() => setLoadingSubs(false))
+  }
+
+  useEffect(() => { refreshSkills() }, [])
+  useEffect(() => { refreshSubmissions() }, [statusFilter])
+
+  const handleUpload = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!addName.trim() || !addFile || uploading) return
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('name', addName.trim())
+      formData.append('description', addDesc.trim())
+      formData.append('author', addAuthor.trim())
+      formData.append('category', addCategory)
+      formData.append('is_featured', String(addFeatured))
+      formData.append('file', addFile)
+      await adminUploadCuratedSkill(formData)
+      setShowAdd(false)
+      setAddName('')
+      setAddDesc('')
+      setAddAuthor('')
+      setAddCategory('general')
+      setAddFeatured(false)
+      setAddFile(null)
+      refreshSkills()
+    } catch {
+      // ignore
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('确认删除此精选技能？')) return
+    try {
+      await adminDeleteCuratedSkill(id)
+      setSkills(prev => prev.filter(s => s.id !== id))
+    } catch {
+      // ignore
+    }
+  }
+
+  const handleSaveEdit = async (id: string) => {
+    setSaving(true)
+    try {
+      await adminUpdateCuratedSkill(id, editFields as any)
+      setEditingId(null)
+      setEditFields({})
+      refreshSkills()
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleApprove = async (id: string) => {
+    setReviewing(id)
+    try {
+      await adminApproveSubmission(id, reviewNotes || undefined)
+      setReviewNotes('')
+      refreshSubmissions()
+      refreshSkills()
+    } catch {
+      // ignore
+    } finally {
+      setReviewing(null)
+    }
+  }
+
+  const handleReject = async (id: string) => {
+    setReviewing(id)
+    try {
+      await adminRejectSubmission(id, reviewNotes || undefined)
+      setReviewNotes('')
+      refreshSubmissions()
+    } catch {
+      // ignore
+    } finally {
+      setReviewing(null)
+    }
+  }
+
+  const tabs: { key: AdminTab; label: string }[] = [
+    { key: 'curated', label: '精选技能' },
+    { key: 'submissions', label: '待审核' },
+  ]
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-dark-text">技能管理</h1>
+        <p className="mt-1 text-sm text-dark-text-secondary">管理精选技能和用户提交审核</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="mb-6 flex gap-1 rounded-lg bg-dark-card p-1 border border-dark-border">
+        {tabs.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
+              tab === t.key
+                ? 'bg-accent-blue text-white'
+                : 'text-dark-text-secondary hover:text-dark-text hover:bg-dark-bg'
+            }`}
+          >
+            {t.label}
+            {t.key === 'submissions' && submissions.filter(s => s.status === 'pending').length > 0 && (
+              <span className="ml-1.5 rounded-full bg-accent-red px-1.5 text-xs text-white">
+                {submissions.filter(s => s.status === 'pending').length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ===== Curated Tab ===== */}
+      {tab === 'curated' && (
+        <div>
+          <div className="mb-4 flex items-center justify-between">
+            <span className="text-sm text-dark-text-secondary">{skills.length} 个精选技能</span>
+            <button
+              onClick={() => setShowAdd(!showAdd)}
+              className="flex items-center gap-1.5 rounded-lg bg-accent-blue px-4 py-2 text-sm font-medium text-white hover:bg-accent-blue/90"
+            >
+              {showAdd ? <ChevronUp size={14} /> : <Plus size={14} />}
+              {showAdd ? '收起' : '添加技能'}
+            </button>
+          </div>
+
+          {/* Add form */}
+          {showAdd && (
+            <form onSubmit={handleUpload} className="mb-6 rounded-xl border border-dark-border bg-dark-card p-5 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-dark-text-secondary mb-1">技能名称 *</label>
+                  <input
+                    type="text"
+                    value={addName}
+                    onChange={e => setAddName(e.target.value)}
+                    className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-dark-text outline-none focus:border-accent-blue"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-dark-text-secondary mb-1">作者</label>
+                  <input
+                    type="text"
+                    value={addAuthor}
+                    onChange={e => setAddAuthor(e.target.value)}
+                    className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-dark-text outline-none focus:border-accent-blue"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-dark-text-secondary mb-1">描述</label>
+                <textarea
+                  value={addDesc}
+                  onChange={e => setAddDesc(e.target.value)}
+                  rows={2}
+                  className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-dark-text outline-none focus:border-accent-blue resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-dark-text-secondary mb-1">分类</label>
+                  <input
+                    type="text"
+                    value={addCategory}
+                    onChange={e => setAddCategory(e.target.value)}
+                    className="w-full rounded-lg border border-dark-border bg-dark-bg px-3 py-2 text-sm text-dark-text outline-none focus:border-accent-blue"
+                  />
+                </div>
+                <div className="flex items-end gap-2 pb-1">
+                  <label className="flex items-center gap-2 text-sm text-dark-text cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={addFeatured}
+                      onChange={e => setAddFeatured(e.target.checked)}
+                      className="rounded"
+                    />
+                    推荐
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-dark-text-secondary mb-1">技能文件 (zip) *</label>
+                <input
+                  type="file"
+                  accept=".zip"
+                  onChange={e => setAddFile(e.target.files?.[0] || null)}
+                  className="text-sm text-dark-text"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={!addName.trim() || !addFile || uploading}
+                className="flex items-center gap-2 rounded-lg bg-accent-blue px-4 py-2 text-sm font-medium text-white hover:bg-accent-blue/90 disabled:opacity-50"
+              >
+                {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                上传并创建
+              </button>
+            </form>
+          )}
+
+          {/* Skills list */}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="animate-spin text-accent-blue" />
+            </div>
+          ) : skills.length === 0 ? (
+            <div className="rounded-xl border border-dark-border bg-dark-card p-8 text-center text-sm text-dark-text-secondary">
+              暂无精选技能
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {skills.map(skill => {
+                const isEditing = editingId === skill.id
+                return (
+                  <div key={skill.id} className="rounded-xl border border-dark-border bg-dark-card px-5 py-4">
+                    {isEditing ? (
+                      <div className="space-y-2">
+                        <input
+                          type="text"
+                          defaultValue={skill.description}
+                          onChange={e => setEditFields(prev => ({ ...prev, description: e.target.value }))}
+                          placeholder="描述"
+                          className="w-full rounded border border-dark-border bg-dark-bg px-2 py-1 text-sm text-dark-text outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            defaultValue={skill.author}
+                            onChange={e => setEditFields(prev => ({ ...prev, author: e.target.value }))}
+                            placeholder="作者"
+                            className="flex-1 rounded border border-dark-border bg-dark-bg px-2 py-1 text-sm text-dark-text outline-none"
+                          />
+                          <input
+                            type="text"
+                            defaultValue={skill.category}
+                            onChange={e => setEditFields(prev => ({ ...prev, category: e.target.value }))}
+                            placeholder="分类"
+                            className="flex-1 rounded border border-dark-border bg-dark-bg px-2 py-1 text-sm text-dark-text outline-none"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleSaveEdit(skill.id)}
+                            disabled={saving}
+                            className="flex items-center gap-1 rounded bg-accent-green/20 px-3 py-1 text-xs text-accent-green hover:bg-accent-green/30"
+                          >
+                            {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} 保存
+                          </button>
+                          <button
+                            onClick={() => { setEditingId(null); setEditFields({}) }}
+                            className="flex items-center gap-1 rounded bg-dark-border/30 px-3 py-1 text-xs text-dark-text-secondary hover:bg-dark-border/50"
+                          >
+                            <X size={12} /> 取消
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            {skill.is_featured && <Star size={14} className="text-accent-yellow shrink-0" />}
+                            <span className="text-sm font-medium text-dark-text">{skill.name}</span>
+                            <span className="rounded bg-dark-bg px-1.5 py-0.5 text-xs text-dark-text-secondary">{skill.category}</span>
+                            <span className="text-xs text-dark-text-secondary">{skill.install_count} 次安装</span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-dark-text-secondary truncate">{skill.description}</p>
+                        </div>
+                        <div className="ml-4 flex shrink-0 gap-1.5">
+                          <button
+                            onClick={() => { setEditingId(skill.id); setEditFields({}) }}
+                            className="rounded p-1.5 text-dark-text-secondary hover:bg-dark-bg hover:text-dark-text"
+                            title="编辑"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(skill.id)}
+                            className="rounded p-1.5 text-dark-text-secondary hover:bg-accent-red/10 hover:text-accent-red"
+                            title="删除"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== Submissions Tab ===== */}
+      {tab === 'submissions' && (
+        <div>
+          <div className="mb-4 flex gap-2">
+            {['pending', 'approved', 'rejected', ''].map(s => (
+              <button
+                key={s || 'all'}
+                onClick={() => { setStatusFilter(s); setLoadingSubs(true) }}
+                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  statusFilter === s
+                    ? 'bg-accent-blue text-white'
+                    : 'bg-dark-card text-dark-text-secondary hover:text-dark-text border border-dark-border'
+                }`}
+              >
+                {s === 'pending' ? '待审核' : s === 'approved' ? '已通过' : s === 'rejected' ? '已拒绝' : '全部'}
+              </button>
+            ))}
+          </div>
+
+          {loadingSubs ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 size={24} className="animate-spin text-accent-blue" />
+            </div>
+          ) : submissions.length === 0 ? (
+            <div className="rounded-xl border border-dark-border bg-dark-card p-8 text-center text-sm text-dark-text-secondary">
+              暂无提交记录
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {submissions.map(sub => (
+                <div key={sub.id} className="rounded-xl border border-dark-border bg-dark-card p-5">
+                  <div className="flex items-start justify-between">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-dark-text">{sub.skill_name}</span>
+                        <span className={`rounded px-2 py-0.5 text-xs ${
+                          sub.status === 'approved' ? 'bg-accent-green/10 text-accent-green' :
+                          sub.status === 'rejected' ? 'bg-accent-red/10 text-accent-red' :
+                          'bg-accent-yellow/10 text-accent-yellow'
+                        }`}>
+                          {sub.status === 'approved' ? '已通过' : sub.status === 'rejected' ? '已拒绝' : '待审核'}
+                        </span>
+                      </div>
+                      {sub.description && <p className="mt-1 text-xs text-dark-text-secondary">{sub.description}</p>}
+                      {sub.source_url && <p className="mt-0.5 text-xs text-accent-blue/70">{sub.source_url}</p>}
+                      <p className="mt-1 text-xs text-dark-text-secondary">
+                        提交者: {sub.user_id.slice(0, 8)}... | {new Date(sub.created_at).toLocaleDateString()}
+                      </p>
+                      {sub.admin_notes && (
+                        <p className="mt-1 text-xs text-dark-text-secondary">备注: {sub.admin_notes}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  {sub.status === 'pending' && (
+                    <div className="mt-3 flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="审核备注（可选）"
+                        value={reviewing === sub.id ? reviewNotes : ''}
+                        onChange={e => { setReviewing(sub.id); setReviewNotes(e.target.value) }}
+                        onFocus={() => setReviewing(sub.id)}
+                        className="flex-1 rounded border border-dark-border bg-dark-bg px-2 py-1 text-xs text-dark-text outline-none"
+                      />
+                      <button
+                        onClick={() => handleApprove(sub.id)}
+                        disabled={reviewing === sub.id && reviewing !== sub.id}
+                        className="flex items-center gap-1 rounded bg-accent-green/20 px-3 py-1.5 text-xs font-medium text-accent-green hover:bg-accent-green/30"
+                      >
+                        <Check size={12} /> 通过
+                      </button>
+                      <button
+                        onClick={() => handleReject(sub.id)}
+                        className="flex items-center gap-1 rounded bg-accent-red/20 px-3 py-1.5 text-xs font-medium text-accent-red hover:bg-accent-red/30"
+                      >
+                        <X size={12} /> 拒绝
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}

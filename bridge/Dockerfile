@@ -18,6 +18,9 @@ COPY *.ts ./
 COPY routes/ ./routes/
 RUN npx tsc
 
+# Copy platform built-in skills
+COPY skills/ ./skills/
+
 # Remove dev dependencies after build
 RUN npm prune --omit=dev
 

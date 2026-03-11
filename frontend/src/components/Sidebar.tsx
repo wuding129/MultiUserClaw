@@ -64,6 +64,7 @@ export default function Sidebar() {
       label: '管理',
       items: [
         { to: '/admin', icon: Shield, label: '用户管理' },
+        { to: '/admin-skills', icon: Zap, label: '技能管理' },
         { to: '/nodes', icon: Monitor, label: 'Node 管理' },
         { to: '/settings', icon: Settings, label: '系统设置' },
       ],

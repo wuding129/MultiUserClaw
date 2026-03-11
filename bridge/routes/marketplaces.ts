@@ -334,7 +334,7 @@ export function marketplacesRoutes(_config: BridgeConfig): Router {
     try {
       const stdout = await new Promise<string>((resolve, reject) => {
         exec(
-          `npx --yes skills add ${slug} -g -y`,
+          `npx --yes skills add ${slug} -g -y --copy`,
           { timeout: 180000, env: { ...process.env, NO_COLOR: "1" } },
           (err, stdout, stderr) => {
             // npm warnings go to stderr but are not real errors

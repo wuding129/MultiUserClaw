@@ -17,6 +17,7 @@ import { filemanagerRoutes } from "./routes/filemanager.js";
 import { channelsRoutes } from "./routes/channels.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { nodesRoutes } from "./routes/nodes.js";
+import { curatedSkillsRoutes } from "./routes/curated-skills.js";
 
 export function createServer(client: BridgeGatewayClient, config: BridgeConfig): http.Server {
   const app = express();
@@ -39,6 +40,7 @@ export function createServer(client: BridgeGatewayClient, config: BridgeConfig):
   app.use("/api", channelsRoutes(client, config));
   app.use("/api", settingsRoutes(config));
   app.use("/api", nodesRoutes(client));
+  app.use("/api", curatedSkillsRoutes(config));
 
   // Error handler
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

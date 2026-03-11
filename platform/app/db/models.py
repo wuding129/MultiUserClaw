@@ -13,6 +13,7 @@ from sqlalchemy import (
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from typing import Optional
 
 
 class Base(DeclarativeBase):
@@ -77,3 +78,38 @@ class AuditLog(Base):
     resource: Mapped[str] = mapped_column(String(128), nullable=True)
     detail: Mapped[str] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CuratedSkill(Base):
+    """Platform-curated skill recommended to all users."""
+
+    __tablename__ = "curated_skills"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name: Mapped[str] = mapped_column(String(128), unique=True, nullable=False, index=True)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    author: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    source_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, default="general")
+    is_featured: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    install_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_by: Mapped[str] = mapped_column(String(36), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class SkillSubmission(Base):
+    """User-submitted skill for admin review."""
+
+    __tablename__ = "skill_submissions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    skill_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    source_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending | approved | rejected
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reviewed_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

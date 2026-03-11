@@ -58,6 +58,7 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock  # Docker API access for container management
       - userdata:/data/openclaw-users
+      - curated-skills:/app/curated-skills
     networks:
       - openclaw-internal   # talk to postgres + user containers
       - openclaw-external   # accept traffic from frontend / public
@@ -90,3 +91,4 @@ networks:
 volumes:
   pgdata:
   userdata:
+  curated-skills:

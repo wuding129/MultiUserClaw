@@ -583,6 +583,137 @@ export async function installSkill(
 }
 
 // ---------------------------------------------------------------------------
+// Curated skills (platform-level)
+// ---------------------------------------------------------------------------
+
+export interface CuratedSkill {
+  id: string
+  name: string
+  description: string
+  author: string
+  source_url: string | null
+  category: string
+  is_featured: boolean
+  install_count: number
+  created_by: string
+  created_at: string
+  installed: boolean
+}
+
+export interface SkillSubmission {
+  id: string
+  user_id: string
+  skill_name: string
+  description: string
+  source_url: string | null
+  status: string
+  admin_notes: string | null
+  reviewed_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export async function listCuratedSkills(): Promise<CuratedSkill[]> {
+  return fetchJSON<CuratedSkill[]>('/api/skills/curated')
+}
+
+export async function installCuratedSkill(skillId: string): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(`/api/skills/curated/${encodeURIComponent(skillId)}/install`, {
+    method: 'POST',
+  })
+}
+
+export async function submitSkill(params: {
+  skill_name: string
+  description: string
+  source_url?: string
+}): Promise<{ ok: boolean; id: string }> {
+  return fetchJSON<{ ok: boolean; id: string }>('/api/skills/submit', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function mySubmissions(): Promise<SkillSubmission[]> {
+  return fetchJSON<SkillSubmission[]>('/api/skills/submissions/mine')
+}
+
+// Admin curated skills
+export async function adminListCuratedSkills(): Promise<CuratedSkill[]> {
+  return fetchJSON<CuratedSkill[]>('/api/admin/skills/curated')
+}
+
+export async function adminCreateCuratedSkill(params: {
+  name: string
+  description?: string
+  author?: string
+  source_url?: string
+  category?: string
+  is_featured?: boolean
+}): Promise<{ ok: boolean; id: string }> {
+  return fetchJSON<{ ok: boolean; id: string }>('/api/admin/skills/curated', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function adminUploadCuratedSkill(formData: FormData): Promise<{ ok: boolean; id: string; updated: boolean }> {
+  const token = getAccessToken()
+  const headers: Record<string, string> = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${API_URL}/api/admin/skills/curated/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`API ${res.status}: ${body}`)
+  }
+  return res.json()
+}
+
+export async function adminUpdateCuratedSkill(skillId: string, params: {
+  name?: string
+  description?: string
+  author?: string
+  source_url?: string
+  category?: string
+  is_featured?: boolean
+}): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(`/api/admin/skills/curated/${encodeURIComponent(skillId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function adminDeleteCuratedSkill(skillId: string): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(`/api/admin/skills/curated/${encodeURIComponent(skillId)}`, {
+    method: 'DELETE',
+  })
+}
+
+export async function adminListSubmissions(status?: string): Promise<SkillSubmission[]> {
+  const params = status ? `?status_filter=${encodeURIComponent(status)}` : ''
+  return fetchJSON<SkillSubmission[]>(`/api/admin/skills/submissions${params}`)
+}
+
+export async function adminApproveSubmission(id: string, notes?: string): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(`/api/admin/skills/submissions/${encodeURIComponent(id)}/approve`, {
+    method: 'POST',
+    body: JSON.stringify({ admin_notes: notes }),
+  })
+}
+
+export async function adminRejectSubmission(id: string, notes?: string): Promise<{ ok: boolean }> {
+  return fetchJSON<{ ok: boolean }>(`/api/admin/skills/submissions/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ admin_notes: notes }),
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Channels
 // ---------------------------------------------------------------------------
 

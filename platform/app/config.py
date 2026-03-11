@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     container_shm_size: str = "1g"
     container_data_dir: str = "/data/openclaw-users"
 
+    # Curated skills directory (shared volume in Docker, local dir in dev)
+    curated_skills_dir: str = "/app/curated-skills"
+
     # Idle management
     container_idle_pause_minutes: int = 30
     container_idle_archive_days: int = 30
