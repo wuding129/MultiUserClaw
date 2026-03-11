@@ -18,10 +18,23 @@ import KnowledgeBase from './pages/KnowledgeBase'
 import SystemSettings from './pages/SystemSettings'
 import ApiAccess from './pages/ApiAccess'
 import Nodes from './pages/Nodes'
-import { isLoggedIn } from './lib/api'
+import { isLoggedIn, getMe } from './lib/api'
+import { useState, useEffect } from 'react'
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   if (!isLoggedIn()) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+function RequireAdmin({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<'loading' | 'admin' | 'denied'>('loading')
+  useEffect(() => {
+    getMe()
+      .then(u => setState(u.role === 'admin' ? 'admin' : 'denied'))
+      .catch(() => setState('denied'))
+  }, [])
+  if (state === 'loading') return null
+  if (state === 'denied') return <Navigate to="/dashboard" replace />
   return <>{children}</>
 }
 
@@ -43,11 +56,11 @@ export default function App() {
         <Route path="knowledge" element={<KnowledgeBase />} />
         <Route path="sessions" element={<Sessions />} />
         <Route path="cron" element={<CronJobs />} />
-        <Route path="admin" element={<Admin />} />
-        <Route path="admin-skills" element={<AdminSkills />} />
-        <Route path="nodes" element={<Nodes />} />
+        <Route path="admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
+        <Route path="admin-skills" element={<RequireAdmin><AdminSkills /></RequireAdmin>} />
+        <Route path="nodes" element={<RequireAdmin><Nodes /></RequireAdmin>} />
         <Route path="api" element={<ApiAccess />} />
-        <Route path="settings" element={<SystemSettings />} />
+        <Route path="settings" element={<RequireAdmin><SystemSettings /></RequireAdmin>} />
       </Route>
     </Routes>
   )

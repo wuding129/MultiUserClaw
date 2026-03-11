@@ -375,10 +375,9 @@ export default function Chat() {
                 wsFinalTimerRef.current = setTimeout(() => {
                   // No new "final" events for 10s — agent is truly done
                   wsCompletedRef.current = true
+                  // Final refresh — handleSend's finally block handles setSending(false)
                   getSession(currentKey).then(detail => {
                     setMessages(detail.messages || [])
-                    setSending(false)
-                    fetchSessions()
                   }).catch(() => {})
                 }, 10000)
               }
@@ -416,10 +415,27 @@ export default function Chat() {
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const waitForResponse = async (key: string, minMessages: number) => {
-    // Poll for intermediate messages while WebSocket listens for completion.
-    // WebSocket sets wsCompletedRef=true + setSending(false) on state="final".
-    // Polling acts as fallback if WebSocket is not connected.
     wsCompletedRef.current = false
+
+    // If WebSocket is connected, just wait for it to signal completion.
+    // The WS onmessage handler refreshes messages in real-time and sets
+    // wsCompletedRef=true when done.
+    if (wsRef.current?.readyState === WebSocket.OPEN && wsReadyRef.current) {
+      const maxWaitMs = 240000 // 4 minutes max
+      const checkInterval = 500
+      const startTime = Date.now()
+      while (Date.now() - startTime < maxWaitMs) {
+        await new Promise(r => setTimeout(r, checkInterval))
+        if (wsCompletedRef.current) return
+        if (key !== activeSessionKeyRef.current) return
+        // If WS disconnected mid-wait, fall through to polling
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) break
+      }
+      // If WS completed while we were checking, return
+      if (wsCompletedRef.current) return
+    }
+
+    // Fallback: HTTP polling when WebSocket is not available
     const maxAttempts = 120
     const interval = 2000
     const stableThresholdMs = 15000
@@ -431,9 +447,7 @@ export default function Chat() {
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, interval))
 
-      // WebSocket already signaled completion
       if (wsCompletedRef.current) return
-
       if (key !== activeSessionKeyRef.current) return
 
       try {
@@ -451,7 +465,6 @@ export default function Chat() {
           lastChangeTime = Date.now()
         }
 
-        // Stable timeout fallback (in case WS is not connected)
         if (hasAssistantReply && (Date.now() - lastChangeTime) >= stableThresholdMs) {
           return
         }
