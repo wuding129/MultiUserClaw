@@ -6,7 +6,7 @@ import {
 import type { Skill, SkillSearchResult, CuratedSkill, SkillSubmission } from '../lib/api'
 import {
   Zap, Loader2, Search, Download, ExternalLink, Check,
-  AlertTriangle, Star, Send, Clock,
+  AlertTriangle, Star, Send,
 } from 'lucide-react'
 
 type Tab = 'curated' | 'search' | 'installed'

@@ -6,8 +6,8 @@ import {
 } from '../lib/api'
 import type { CuratedSkill, SkillSubmission } from '../lib/api'
 import {
-  Zap, Loader2, Plus, Trash2, Star, Check, X, Upload,
-  ChevronDown, ChevronUp, Edit2,
+  Loader2, Plus, Trash2, Star, Check, X, Upload,
+  ChevronUp, Edit2,
 } from 'lucide-react'
 
 type AdminTab = 'curated' | 'submissions'
