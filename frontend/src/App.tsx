@@ -9,7 +9,6 @@ import SkillStore from './pages/SkillStore'
 import Channels from './pages/Channels'
 import AIModels from './pages/AIModels'
 import Sessions from './pages/Sessions'
-import AuditLog from './pages/AuditLog'
 import Admin from './pages/Admin'
 import Chat from './pages/Chat'
 import CronJobs from './pages/CronJobs'
@@ -39,9 +38,8 @@ export default function App() {
         <Route path="models" element={<AIModels />} />
         <Route path="files" element={<FileManager />} />
         <Route path="sessions" element={<Sessions />} />
-        <Route path="audit" element={<AuditLog />} />
-        <Route path="admin" element={<Admin />} />
         <Route path="cron" element={<CronJobs />} />
+        <Route path="admin" element={<Admin />} />
         <Route path="nodes" element={<Nodes />} />
         <Route path="settings" element={<SystemSettings />} />
       </Route>

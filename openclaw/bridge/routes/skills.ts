@@ -14,14 +14,17 @@ interface SkillInfo {
   source: string;
   available: boolean;
   disabled: boolean;
+  compatible: boolean;
   path: string;
 }
 
-function parseSkillMd(content: string): { description: string } {
+function parseSkillMd(content: string): { description: string; requiredBins: string[]; platforms: string[] } {
   // Extract description from SKILL.md frontmatter or first line
   const lines = content.split("\n");
   let inFrontmatter = false;
   let description = "";
+  const requiredBins: string[] = [];
+  const platforms: string[] = [];
 
   for (const line of lines) {
     if (line.trim() === "---") {
@@ -41,7 +44,31 @@ function parseSkillMd(content: string): { description: string } {
     description = lines.find((l) => l.trim() && l.trim() !== "---") || "";
   }
 
-  return { description };
+  // Detect platform-specific skills
+  if (/\b(macos|mac app|darwin|osascript|apple-?script)\b/i.test(content)) platforms.push("macos");
+  if (/\b(ios|iphone|ipad)\b/i.test(content)) platforms.push("ios");
+
+  // Extract required bins from metadata
+  const binsMatch = content.match(/"requires"\s*:\s*\{\s*"bins"\s*:\s*\[([^\]]+)\]/);
+  if (binsMatch) {
+    const binList = binsMatch[1].match(/"([^"]+)"/g);
+    if (binList) {
+      requiredBins.push(...binList.map(b => b.replace(/"/g, "")));
+    }
+  }
+
+  return { description, requiredBins, platforms };
+}
+
+import { execFileSync } from "node:child_process";
+
+function isBinAvailable(bin: string): boolean {
+  try {
+    execFileSync("which", [bin], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function scanSkillsDir(dir: string, source: string): SkillInfo[] {
@@ -60,7 +87,16 @@ function scanSkillsDir(dir: string, source: string): SkillInfo[] {
     if (!fs.existsSync(skillMdPath)) continue;
 
     const content = fs.readFileSync(skillMdPath, "utf-8");
-    const { description } = parseSkillMd(content);
+    const { description, requiredBins, platforms } = parseSkillMd(content);
+
+    // Check compatibility
+    let compatible = true;
+    if (platforms.includes("macos") || platforms.includes("ios")) {
+      compatible = false;
+    }
+    if (compatible && requiredBins.length > 0) {
+      compatible = requiredBins.every(bin => isBinAvailable(bin));
+    }
 
     skills.push({
       name: entry.name,
@@ -68,6 +104,7 @@ function scanSkillsDir(dir: string, source: string): SkillInfo[] {
       source,
       available: true,
       disabled: false,
+      compatible,
       path: skillMdPath,
     });
   }

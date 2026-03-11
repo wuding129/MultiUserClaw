@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { listSkills, searchSkills, installSkill, toggleSkill } from '../lib/api'
 import type { Skill, SkillSearchResult } from '../lib/api'
-import { Zap, Loader2, Search, Download, ExternalLink, Check } from 'lucide-react'
+import { Zap, Loader2, Search, Download, ExternalLink, Check, AlertTriangle } from 'lucide-react'
 
 export default function SkillStore() {
   const [skills, setSkills] = useState<Skill[]>([])
@@ -187,7 +187,7 @@ export default function SkillStore() {
       <div>
         <h2 className="mb-3 text-base font-semibold text-dark-text">
           已安装技能
-          {skills.length > 0 && <span className="ml-2 text-sm font-normal text-dark-text-secondary">({skills.length})</span>}
+          {skills.length > 0 && <span className="ml-2 text-sm font-normal text-dark-text-secondary">({skills.filter(s => s.compatible !== false).length} 可用 / {skills.length} 总计)</span>}
         </h2>
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -198,55 +198,89 @@ export default function SkillStore() {
             暂无已安装技能，使用上方搜索栏查找并安装
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-4">
-            {skills.map(skill => {
-              const isDisabled = skill.disabled === true
-              const isToggling = toggling === skill.name
-              return (
-                <div
-                  key={skill.name}
-                  className={`rounded-xl border bg-dark-card p-5 transition-colors ${
-                    isDisabled
-                      ? 'border-dark-border/50 opacity-60'
-                      : 'border-dark-border hover:border-accent-blue/30'
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-yellow/10">
-                      <Zap size={20} className={isDisabled ? 'text-dark-text-secondary' : 'text-accent-yellow'} />
+          <>
+            {/* Compatible skills */}
+            <div className="grid grid-cols-3 gap-4">
+              {skills.filter(s => s.compatible !== false).map(skill => {
+                const isDisabled = skill.disabled === true
+                const isToggling = toggling === skill.name
+                return (
+                  <div
+                    key={skill.name}
+                    className={`rounded-xl border bg-dark-card p-5 transition-colors ${
+                      isDisabled
+                        ? 'border-dark-border/50 opacity-60'
+                        : 'border-dark-border hover:border-accent-blue/30'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-accent-yellow/10">
+                        <Zap size={20} className={isDisabled ? 'text-dark-text-secondary' : 'text-accent-yellow'} />
+                      </div>
+                      {/* Toggle switch */}
+                      <button
+                        onClick={() => handleToggle(skill)}
+                        disabled={isToggling}
+                        className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                          isDisabled ? 'bg-dark-border' : 'bg-accent-green'
+                        } ${isToggling ? 'opacity-50' : 'cursor-pointer'}`}
+                        title={isDisabled ? '点击启用' : '点击禁用'}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
+                            isDisabled ? 'translate-x-0.5' : 'translate-x-[18px]'
+                          }`}
+                        />
+                      </button>
                     </div>
-                    {/* Toggle switch */}
-                    <button
-                      onClick={() => handleToggle(skill)}
-                      disabled={isToggling}
-                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-                        isDisabled ? 'bg-dark-border' : 'bg-accent-green'
-                      } ${isToggling ? 'opacity-50' : 'cursor-pointer'}`}
-                      title={isDisabled ? '点击启用' : '点击禁用'}
+                    <h3 className="mt-3 text-sm font-semibold text-dark-text">{skill.name}</h3>
+                    <p className="mt-1 text-xs text-dark-text-secondary leading-relaxed line-clamp-2">{skill.description}</p>
+                    <div className="mt-3 flex items-center justify-between">
+                      {skill.source && (
+                        <span className="text-xs text-dark-text-secondary">
+                          来源: {skill.source}
+                        </span>
+                      )}
+                      {isDisabled && (
+                        <span className="text-xs text-accent-yellow">已禁用</span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Incompatible skills (collapsed) */}
+            {skills.filter(s => s.compatible === false).length > 0 && (
+              <details className="mt-6">
+                <summary className="cursor-pointer text-sm text-dark-text-secondary hover:text-dark-text">
+                  <span className="ml-1">不兼容的技能 ({skills.filter(s => s.compatible === false).length}) — 这些技能需要 macOS/iOS 或缺少依赖</span>
+                </summary>
+                <div className="mt-3 grid grid-cols-3 gap-4">
+                  {skills.filter(s => s.compatible === false).map(skill => (
+                    <div
+                      key={skill.name}
+                      className="rounded-xl border border-dark-border/30 bg-dark-card p-5 opacity-40"
                     >
-                      <span
-                        className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform ${
-                          isDisabled ? 'translate-x-0.5' : 'translate-x-[18px]'
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <h3 className="mt-3 text-sm font-semibold text-dark-text">{skill.name}</h3>
-                  <p className="mt-1 text-xs text-dark-text-secondary leading-relaxed line-clamp-2">{skill.description}</p>
-                  <div className="mt-3 flex items-center justify-between">
-                    {skill.source && (
-                      <span className="text-xs text-dark-text-secondary">
-                        来源: {skill.source}
-                      </span>
-                    )}
-                    {isDisabled && (
-                      <span className="text-xs text-accent-yellow">已禁用</span>
-                    )}
-                  </div>
+                      <div className="flex items-start justify-between">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-dark-border/20">
+                          <AlertTriangle size={20} className="text-dark-text-secondary" />
+                        </div>
+                        <span className="rounded bg-dark-border/30 px-2 py-0.5 text-xs text-dark-text-secondary">不兼容</span>
+                      </div>
+                      <h3 className="mt-3 text-sm font-semibold text-dark-text">{skill.name}</h3>
+                      <p className="mt-1 text-xs text-dark-text-secondary leading-relaxed line-clamp-2">{skill.description}</p>
+                      <div className="mt-3">
+                        {skill.source && (
+                          <span className="text-xs text-dark-text-secondary">来源: {skill.source}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              )
-            })}
-          </div>
+              </details>
+            )}
+          </>
         )}
       </div>
     </div>

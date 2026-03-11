@@ -15,7 +15,6 @@ import {
   Settings,
   User,
   Shield,
-  FileText,
 } from 'lucide-react'
 
 
@@ -46,7 +45,7 @@ export default function Sidebar() {
       ],
     },
     {
-      label: '技能中心',
+      label: '工具',
       items: [
         { to: '/skills', icon: Zap, label: '技能商店' },
         { to: '/channels', icon: Radio, label: '渠道管理' },
@@ -57,17 +56,16 @@ export default function Sidebar() {
     {
       label: '系统',
       items: [
-        { to: '/sessions', icon: MessageSquare, label: '会话历史' },
+        { to: '/sessions', icon: Clock, label: '会话历史' },
         { to: '/cron', icon: Clock, label: '定时任务' },
-        { to: '/nodes', icon: Monitor, label: 'Node 管理' },
-        { to: '/audit', icon: FileText, label: '审计日志' },
-        { to: '/settings', icon: Settings, label: '系统设置' },
       ],
     },
     ...(isAdmin ? [{
-      label: '管理员',
+      label: '管理',
       items: [
         { to: '/admin', icon: Shield, label: '用户管理' },
+        { to: '/nodes', icon: Monitor, label: 'Node 管理' },
+        { to: '/settings', icon: Settings, label: '系统设置' },
       ],
     }] : []),
   ]

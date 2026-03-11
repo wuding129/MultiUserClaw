@@ -38,7 +38,7 @@ class UpdateUserRequest(BaseModel):
     is_active: bool | None = None
 
 
-async def get_container_stats(docker_id: str) -> dict | None:
+def get_container_stats(docker_id: str) -> dict | None:
     """Get container resource usage stats."""
     try:
         client = _docker()

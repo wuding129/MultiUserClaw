@@ -82,6 +82,7 @@ export interface Skill {
   description: string
   source?: string
   disabled?: boolean
+  compatible?: boolean
 }
 
 // ---------------------------------------------------------------------------

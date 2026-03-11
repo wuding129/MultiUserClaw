@@ -283,8 +283,8 @@ export default function Chat() {
 
       await sendChatMessage(activeSessionKey, finalMessage)
 
-      // Poll for response
-      await pollForResponse(activeSessionKey, messages.length + 1)
+      // Poll for assistant response
+      await pollForResponse(activeSessionKey)
       fetchSessions()
     } catch (err: any) {
       setError(err?.message || '发送失败')
@@ -293,16 +293,27 @@ export default function Chat() {
     }
   }
 
-  const pollForResponse = async (key: string, minMessages: number) => {
+  const pollForResponse = async (key: string) => {
     const maxAttempts = 60
     const interval = 2000
+    let lastAssistantCount = 0
+
+    // Count current assistant messages
+    try {
+      const detail = await getSession(key)
+      const msgs = detail.messages || []
+      lastAssistantCount = msgs.filter(m => m.role === 'assistant').length
+    } catch {
+      // ignore
+    }
 
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, interval))
       try {
         const detail = await getSession(key)
         const msgs = detail.messages || []
-        if (msgs.length > minMessages) {
+        const newAssistantCount = msgs.filter(m => m.role === 'assistant').length
+        if (newAssistantCount > lastAssistantCount) {
           setMessages(msgs)
           return
         }
@@ -310,6 +321,7 @@ export default function Chat() {
         // continue polling
       }
     }
+    // Timeout — show whatever we have
     try {
       const detail = await getSession(key)
       setMessages(detail.messages || [])
