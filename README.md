@@ -462,12 +462,31 @@ Gateway 处理：
 
 技能文件位于 `openclaw/skills/`，每个技能是一个包含 `SKILL.md` 的目录。用户也可以在自己的工作区中创建自定义技能。
 
+**技能类型：**
+- **内置技能**：OpenClaw 自带的技能（如 github、weather 等）
+- **平台精选技能**：平台管理员推荐的技能，可安装到特定 Agent
+- **用户自定义技能**：用户上传的技能
+
+**Agent 专属技能：**
+- 每个 Agent 有自己的技能目录：`~/.openclaw/workspace-<agentId>/skills/`
+- 主 Agent 使用默认工作区：`~/.openclaw/workspace/skills/`
+- 通过 `X-Agent-Id` 请求头指定操作哪个 Agent 的技能
+
 **管理接口（通过 Bridge API）：**
 
-- `GET /api/skills` — 列出所有技能（内置 + 用户自定义）
-- `POST /api/skills/upload` — 上传技能（ZIP 格式）
-- `DELETE /api/skills/:name` — 删除用户自定义技能
+- `GET /api/skills` — 列出所有可用技能（内置 + 精选 + Agent 专属）
+- `GET /api/skills?agentId=<id>` — 列出特定 Agent 的技能
+- `POST /api/skills/upload` — 上传技能到当前 Agent
+- `DELETE /api/skills/:name` — 删除当前 Agent 的自定义技能
 - `GET /api/skills/:name/download` — 导出技能
+- `PUT /api/skills/:name/toggle` — 启用/禁用技能
+- `GET /api/skills/config` — 获取当前 Agent 的技能配置
+- `PUT /api/skills/config` — 设置技能配置（禁用列表）
+
+**精选技能接口：**
+
+- `GET /api/curated-skills` — 列出平台精选技能
+- `POST /api/curated-skills/:id/install` — 安装精选技能到当前 Agent
 
 ---
 
