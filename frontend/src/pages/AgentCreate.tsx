@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, Bot, Loader2 } from 'lucide-react'
+import { ArrowLeft, Bot, Loader2, Cpu, Package } from 'lucide-react'
 import { createNewAgent } from '../store/agents'
+import { listModels, listCuratedSkills, type ModelChoice, type CuratedSkill } from '../lib/api'
 
 // Convert display name to a valid agent ID (ASCII only, lowercase)
 function toAgentId(name: string): string {
@@ -21,13 +22,39 @@ export default function AgentCreate() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [models, setModels] = useState<ModelChoice[]>([])
+  const [modelsLoading, setModelsLoading] = useState(true)
+  const [curatedSkills, setCuratedSkills] = useState<CuratedSkill[]>([])
+  const [curatedLoading, setCuratedLoading] = useState(true)
   const WORKSPACE_PREFIX = '~/.openclaw/workspace_'
   const [form, setForm] = useState({
     displayName: '',
     agentId: '',
     agentIdManual: false, // true if user has manually edited the ID
     workspaceSuffix: '',
+    installedSkills: [] as string[], // skill IDs to install for this agent
+    model: '', // selected model
   })
+
+  // Fetch available models and curated skills on mount
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        const [modelsResult, curated] = await Promise.all([
+          listModels(),
+          listCuratedSkills(),
+        ])
+        setModels(modelsResult.models)
+        setCuratedSkills(curated.filter(s => s.installed === false)) // only show not installed
+      } catch (err) {
+        console.error('Failed to fetch data:', err)
+      } finally {
+        setModelsLoading(false)
+        setCuratedLoading(false)
+      }
+    }
+    fetchData()
+  }, [])
 
   const effectiveId = form.agentId || toAgentId(form.displayName)
   const hasValidId = /^[a-z0-9][a-z0-9_-]*$/.test(effectiveId)
@@ -42,7 +69,7 @@ export default function AgentCreate() {
     try {
       const suffix = form.workspaceSuffix.trim()
       const workspace = suffix ? `${WORKSPACE_PREFIX}${suffix}` : undefined
-      await createNewAgent(effectiveId, workspace)
+      await createNewAgent(effectiveId, workspace, form.installedSkills, form.model || undefined)
       navigate('/agents')
     } catch (err: any) {
       setError(err?.message || '创建失败，请重试')
@@ -138,6 +165,103 @@ export default function AgentCreate() {
               />
             </div>
             <p className="mt-1 text-xs text-dark-text-secondary">留空则自动生成</p>
+          </div>
+
+          {/* Model Selection */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-dark-text">
+              <div className="flex items-center gap-2">
+                <Cpu size={14} />
+                选择模型
+              </div>
+            </label>
+            {modelsLoading ? (
+              <div className="flex items-center gap-2 text-sm text-dark-text-secondary">
+                <Loader2 size={14} className="animate-spin" />
+                加载中...
+              </div>
+            ) : models.length === 0 ? (
+              <p className="text-sm text-dark-text-secondary">暂无可用模型</p>
+            ) : (
+              <select
+                value={form.model}
+                onChange={e => setForm(f => ({ ...f, model: e.target.value }))}
+                className="w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-2.5 text-sm text-dark-text outline-none focus:border-accent-blue"
+              >
+                <option value="">默认模型</option>
+                {models.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} ({model.provider})
+                  </option>
+                ))}
+              </select>
+            )}
+            <p className="mt-1 text-xs text-dark-text-secondary">
+              留空使用平台默认模型
+            </p>
+          </div>
+
+          {/* Install Curated Skills */}
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-dark-text">
+              <div className="flex items-center gap-2">
+                <Package size={14} />
+                安装精选技能
+              </div>
+            </label>
+            {curatedLoading ? (
+              <div className="flex items-center gap-2 text-sm text-dark-text-secondary">
+                <Loader2 size={14} className="animate-spin" />
+                加载中...
+              </div>
+            ) : curatedSkills.length === 0 ? (
+              <p className="text-sm text-dark-text-secondary">暂无可安装的精选技能</p>
+            ) : (
+              <div className="max-h-48 overflow-y-auto rounded-lg border border-dark-border bg-dark-bg p-3 space-y-2">
+                {curatedSkills.map(skill => (
+                  <label
+                    key={skill.id}
+                    className="flex items-start gap-3 p-2 rounded hover:bg-dark-card cursor-pointer transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.installedSkills.includes(skill.id)}
+                      onChange={e => {
+                        if (e.target.checked) {
+                          setForm(f => ({
+                            ...f,
+                            installedSkills: [...f.installedSkills, skill.id]
+                          }))
+                        } else {
+                          setForm(f => ({
+                            ...f,
+                            installedSkills: f.installedSkills.filter(s => s !== skill.id)
+                          }))
+                        }
+                      }}
+                      className="mt-1 w-4 h-4 rounded border-dark-border text-accent-blue focus:ring-accent-blue bg-dark-bg"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-dark-text">
+                        {skill.name}
+                        {skill.is_featured && (
+                          <span className="ml-2 text-xs bg-accent-yellow/20 text-accent-yellow px-1.5 py-0.5 rounded">精选</span>
+                        )}
+                      </div>
+                      {skill.description && (
+                        <div className="text-xs text-dark-text-secondary truncate">{skill.description}</div>
+                      )}
+                      <div className="text-xs text-dark-text-secondary mt-0.5">
+                        {skill.category} · {skill.install_count} 次安装
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="mt-1 text-xs text-dark-text-secondary">
+              选择要预装到此 Agent 的精选技能，安装后可单独启用/禁用
+            </p>
           </div>
 
           {/* Info box */}

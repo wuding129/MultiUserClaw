@@ -2,10 +2,11 @@ import { Router } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import type { BridgeConfig } from "../config.js";
 import type { BridgeGatewayClient } from "../gateway-client.js";
 import { asyncHandler } from "../utils.js";
 
-export function agentsRoutes(client: BridgeGatewayClient): Router {
+export function agentsRoutes(client: BridgeGatewayClient, config: BridgeConfig): Router {
   const router = Router();
 
   // GET /api/agents — list agents
@@ -20,15 +21,54 @@ export function agentsRoutes(client: BridgeGatewayClient): Router {
 
   // POST /api/agents — create agent
   router.post("/agents", asyncHandler(async (req, res) => {
-    const { name, workspace, emoji, avatar } = req.body;
+    const { name, workspace, emoji, avatar, installed_skills, model } = req.body;
 
     try {
       const defaultWorkspace = `~/.openclaw/workspace-${name}`;
-      const params: Record<string, unknown> = { name, workspace: workspace || defaultWorkspace };
+      const actualWorkspace = workspace || defaultWorkspace;
+      const resolvedWorkspace = actualWorkspace.replace("~", os.homedir());
+      const params: Record<string, unknown> = { name, workspace: actualWorkspace };
       if (emoji !== undefined) params.emoji = emoji;
       if (avatar !== undefined) params.avatar = avatar;
+      if (model !== undefined) params.model = model;
 
       const result = await client.request<Record<string, unknown>>("agents.create", params);
+
+      // Install selected curated skills to agent's专属 directory
+      if (installed_skills && Array.isArray(installed_skills) && installed_skills.length > 0) {
+        // Fetch curated skills from platform to get skill names by ID
+        try {
+          const gatewayUrl = config.proxyUrl.replace("/llm/v1", "");
+          const resp = await fetch(`${gatewayUrl}/api/skills/curated`, {
+            headers: { "Authorization": `Bearer ${config.proxyToken}` },
+          });
+          if (resp.ok) {
+            const curatedList: Array<{ id: string; name: string }> = await resp.json();
+            const skillIdToName = new Map(curatedList.map(s => [s.id, s.name]));
+
+            const agentSkillsDir = path.join(resolvedWorkspace, "skills");
+            fs.mkdirSync(agentSkillsDir, { recursive: true });
+
+            // Curated skills are stored in a Docker volume mounted at /app/curated-skills
+            const curatedSkillsBase = "/app/curated-skills";
+
+            for (const skillId of installed_skills) {
+              const skillName = skillIdToName.get(skillId);
+              if (!skillName) continue;
+
+              const srcDir = path.join(curatedSkillsBase, skillName);
+              if (fs.existsSync(srcDir)) {
+                const destDir = path.join(agentSkillsDir, skillName);
+                fs.cpSync(srcDir, destDir, { recursive: true });
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Failed to install curated skills:", err);
+          // Continue even if skill installation fails - agent is still created
+        }
+      }
+
       res.json(result);
     } catch (err) {
       res.status(500).json({ detail: (err as Error).message });

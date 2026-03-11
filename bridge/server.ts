@@ -34,7 +34,7 @@ export function createServer(client: BridgeGatewayClient, config: BridgeConfig):
   app.use("/api", commandsRoutes(config));
   app.use("/api", pluginsRoutes(config));
   app.use("/api", cronRoutes(client));
-  app.use("/api", agentsRoutes(client));
+  app.use("/api", agentsRoutes(client, config));
   app.use("/api", marketplacesRoutes(config));
   app.use("/api", filemanagerRoutes(config));
   app.use("/api", channelsRoutes(client, config));

@@ -7,9 +7,10 @@ import {
   Loader2,
   Eye,
   EyeOff,
+  Wrench,
 } from 'lucide-react'
 import { fetchAgentDetail, fetchAgents } from '../store/agents'
-import { getAgentFile } from '../lib/api'
+import { getAgentFile, listSkillsForAgent, toggleAgentSkill, type Skill } from '../lib/api'
 import type { BackendAgent, AgentFile } from '../types/agent'
 
 interface AgentDetailData {
@@ -27,16 +28,28 @@ export default function AgentDetail() {
   const [expandedFiles, setExpandedFiles] = useState<Record<string, string | null>>({})
   const [loadingFiles, setLoadingFiles] = useState<Record<string, boolean>>({})
 
+  // Skills state
+  const [skills, setSkills] = useState<Skill[]>([])
+  const [loadingSkills, setLoadingSkills] = useState(true)
+  const [togglingSkill, setTogglingSkill] = useState<string | null>(null)
+
   useEffect(() => {
     if (!id) return
     Promise.all([
       fetchAgentDetail(id),
       fetchAgents(),
-    ]).then(([d, agents]) => {
+      listSkillsForAgent(id),
+    ]).then(([d, agents, skillList]) => {
       setDetail(d as AgentDetailData)
       const found = agents.find((a: BackendAgent) => a.id === id)
       setAgentInfo(found || null)
-    }).finally(() => setLoading(false))
+      setSkills(skillList)
+    }).catch(() => {
+      // Ignore skills errors
+    }).finally(() => {
+      setLoading(false)
+      setLoadingSkills(false)
+    })
   }, [id])
 
   const toggleFile = async (fileName: string) => {
@@ -58,6 +71,27 @@ export default function AgentDetail() {
       setExpandedFiles(prev => ({ ...prev, [fileName]: '(无法加载文件内容)' }))
     } finally {
       setLoadingFiles(prev => ({ ...prev, [fileName]: false }))
+    }
+  }
+
+  const handleToggleSkill = async (skill: Skill) => {
+    if (!id || togglingSkill) return
+    const newEnabled = skill.disabled !== true
+    setTogglingSkill(skill.name)
+    try {
+      await toggleAgentSkill(id, skill.name, newEnabled)
+      setSkills(prev =>
+        prev.map(s =>
+          s.name === skill.name ? { ...s, disabled: !newEnabled } : s
+        )
+      )
+    } catch (err) {
+      console.error('Failed to toggle skill:', err)
+      // Refresh skills on error
+      const refreshed = await listSkillsForAgent(id)
+      setSkills(refreshed)
+    } finally {
+      setTogglingSkill(null)
     }
   }
 
@@ -180,6 +214,57 @@ export default function AgentDetail() {
           </div>
         </div>
       )}
+
+      {/* Skills */}
+      <div className="rounded-xl border border-dark-border bg-dark-card p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Wrench size={16} className="text-dark-text-secondary" />
+          <span className="text-sm font-medium text-dark-text">技能管理</span>
+          {loadingSkills && <Loader2 size={14} className="animate-spin text-dark-text-secondary" />}
+        </div>
+        {skills.length === 0 ? (
+          <p className="text-sm text-dark-text-secondary">暂无可用技能</p>
+        ) : (
+          <div className="space-y-2">
+            {skills.map(skill => (
+              <div
+                key={skill.name}
+                className="flex items-center justify-between rounded-lg bg-dark-bg px-4 py-2"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-dark-text">{skill.name}</div>
+                  {skill.description && (
+                    <div className="text-xs text-dark-text-secondary truncate">{skill.description}</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleToggleSkill(skill)}
+                  disabled={togglingSkill === skill.name}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    skill.disabled
+                      ? 'bg-dark-card border border-dark-border text-dark-text-secondary hover:text-dark-text'
+                      : 'bg-accent-blue/20 text-accent-blue hover:bg-accent-blue/30'
+                  }`}
+                >
+                  {togglingSkill === skill.name ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : skill.disabled ? (
+                    <>
+                      <EyeOff size={12} />
+                      禁用
+                    </>
+                  ) : (
+                    <>
+                      <Eye size={12} />
+                      启用
+                    </>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

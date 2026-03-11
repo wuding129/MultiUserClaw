@@ -14,8 +14,8 @@ export async function fetchAgentDetail(agentId: string) {
   }
 }
 
-export async function createNewAgent(name: string, workspace?: string) {
-  return api.createAgent(name, workspace)
+export async function createNewAgent(name: string, workspace?: string, installedSkills?: string[], model?: string) {
+  return api.createAgent(name, workspace, installedSkills, model)
 }
 
 export async function updateExistingAgent(agentId: string, updates: {

@@ -240,10 +240,12 @@ export async function listAgents(): Promise<AgentListResult> {
 export async function createAgent(
   name: string,
   workspace?: string,
+  installedSkills?: string[],
+  model?: string,
 ): Promise<AgentInfo> {
   return fetchJSON<AgentInfo>('/api/openclaw/agents', {
     method: 'POST',
-    body: JSON.stringify({ name, workspace }),
+    body: JSON.stringify({ name, workspace, installed_skills: installedSkills, model }),
   })
 }
 
@@ -361,9 +363,25 @@ export async function listSkills(): Promise<Skill[]> {
   return fetchJSON<Skill[]>('/api/openclaw/skills')
 }
 
+// Get skills for a specific agent (uses X-Agent-Id header)
+export async function listSkillsForAgent(agentId: string): Promise<Skill[]> {
+  return fetchJSON<Skill[]>('/api/openclaw/skills', {
+    headers: { 'X-Agent-Id': agentId },
+  })
+}
+
 export async function toggleSkill(name: string, enabled: boolean): Promise<void> {
   await fetchJSON(`/api/openclaw/skills/${encodeURIComponent(name)}/toggle`, {
     method: 'PUT',
+    body: JSON.stringify({ enabled }),
+  })
+}
+
+// Toggle skill for a specific agent (uses X-Agent-Id header)
+export async function toggleAgentSkill(agentId: string, name: string, enabled: boolean): Promise<void> {
+  await fetchJSON(`/api/openclaw/skills/${encodeURIComponent(name)}/toggle`, {
+    method: 'PUT',
+    headers: { 'X-Agent-Id': agentId },
     body: JSON.stringify({ enabled }),
   })
 }

@@ -1,4 +1,4 @@
-import { Router } from "express";
+import express, { Router, type Request } from "express";
 import fs from "node:fs";
 import path from "node:path";
 import multer from "multer";
@@ -134,12 +134,73 @@ export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient):
 
   const builtinSkillsDir = resolveBuiltinSkillsDir();
   const globalSkillsDir = path.join(config.openclawHome, "skills");
-  const workspaceSkillsDir = path.join(config.workspacePath, "skills");
+
+  // Get workspace path for a specific agent
+  // main agent uses default workspace, other agents use workspace-<agentId>
+  function getAgentWorkspacePath(agentId: string): string {
+    if (agentId === "main" || !agentId) {
+      return config.workspacePath;
+    }
+    return path.join(config.openclawHome, `workspace-${agentId}`);
+  }
+
+  // Get skills directory for a specific agent
+  function getAgentSkillsDir(agentId: string): string {
+    return path.join(getAgentWorkspacePath(agentId), "skills");
+  }
+
+  // Get skill config file path for an agent
+  function getAgentSkillConfigPath(agentId: string): string {
+    return path.join(getAgentWorkspacePath(agentId), ".skill-config.json");
+  }
+
+  // Read skill config (disabled_skills list) for an agent
+  function getAgentSkillConfig(agentId: string): { disabled_skills: string[] } {
+    const configPath = getAgentSkillConfigPath(agentId);
+    try {
+      if (fs.existsSync(configPath)) {
+        const content = fs.readFileSync(configPath, "utf-8");
+        return JSON.parse(content);
+      }
+    } catch { /* ignore parse errors */ }
+    return { disabled_skills: [] };
+  }
+
+  // Write skill config for an agent
+  function setAgentSkillConfig(agentId: string, config: { disabled_skills: string[] }): void {
+    const configPath = getAgentSkillConfigPath(agentId);
+    const workspacePath = getAgentWorkspacePath(agentId);
+    fs.mkdirSync(workspacePath, { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), "utf-8");
+  }
+
+  // Get agent ID from request header (set by platform skill) or query param (for frontend compatibility)
+  // Priority: header > query > default "main"
+  // This ensures agents can only operate on their own skills
+  function getAgentIdFromRequest(req: Request): string {
+    const headerAgentId = req.headers["x-agent-id"] as string | undefined;
+    if (headerAgentId && /^[a-z0-9][a-z0-9_-]*$/.test(headerAgentId)) {
+      return headerAgentId;
+    }
+    // Fallback to query param for frontend compatibility, but validate
+    const queryAgentId = req.query.agentId as string | undefined;
+    if (queryAgentId && /^[a-z0-9][a-z0-9_-]*$/.test(queryAgentId)) {
+      return queryAgentId;
+    }
+    return "main";
+  }
 
   // GET /api/skills
-  router.get("/skills", asyncHandler(async (_req, res) => {
+  router.get("/skills", asyncHandler(async (req, res) => {
+    const agentId = getAgentIdFromRequest(req);
+
+    // Get agent's disabled skills config
+    const skillConfig = getAgentSkillConfig(agentId);
+    const disabledSet = new Set(skillConfig.disabled_skills);
+
     const builtin = scanSkillsDir(builtinSkillsDir, "builtin");
     const global = scanSkillsDir(globalSkillsDir, "global");
+    const workspaceSkillsDir = getAgentSkillsDir(agentId);
     const workspace = scanSkillsDir(workspaceSkillsDir, "workspace");
 
     // Priority: workspace > global > builtin (higher overrides lower)
@@ -163,7 +224,16 @@ export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient):
       // Gateway may not support skills.status — just return without disabled info
     }
 
-    res.json(Array.from(skillMap.values()));
+    // Filter out skills disabled by this agent's config
+    // For non-main agents, filter out skills not in their workspace that are disabled
+    // For main agent, don't filter (or filter based on config)
+    let skills = Array.from(skillMap.values());
+    if (agentId !== "main") {
+      // Filter out disabled skills from the config
+      skills = skills.filter(s => !disabledSet.has(s.name));
+    }
+
+    res.json(skills);
   }));
 
   // PUT /api/skills/:name/toggle — enable or disable a skill
@@ -180,9 +250,40 @@ export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient):
     }
   }));
 
+  // PUT /api/skills/config — configure which skills are disabled for this agent
+  router.put("/skills/config", asyncHandler(async (req, res) => {
+    const agentId = getAgentIdFromRequest(req);
+    const { disabled_skills } = req.body as { disabled_skills: string[] };
+
+    if (!Array.isArray(disabled_skills)) {
+      res.status(400).json({ detail: "disabled_skills must be an array" });
+      return;
+    }
+
+    // Validate skill names
+    for (const name of disabled_skills) {
+      if (!/^[a-z0-9_-]+$/.test(name)) {
+        res.status(400).json({ detail: `Invalid skill name: ${name}` });
+        return;
+      }
+    }
+
+    setAgentSkillConfig(agentId, { disabled_skills });
+    res.json({ ok: true, agentId, disabled_skills });
+  }));
+
+  // GET /api/skills/config — get skill config for this agent
+  router.get("/skills/config", asyncHandler(async (req, res) => {
+    const agentId = getAgentIdFromRequest(req);
+    const config = getAgentSkillConfig(agentId);
+    res.json({ agentId, ...config });
+  }));
+
   // DELETE /api/skills/:name
   router.delete("/skills/:name", asyncHandler(async (req, res) => {
     const name = req.params.name;
+    const agentId = getAgentIdFromRequest(req);
+    const workspaceSkillsDir = getAgentSkillsDir(agentId);
     const skillDir = path.join(workspaceSkillsDir, name);
 
     if (!fs.existsSync(skillDir)) {
@@ -203,6 +304,8 @@ export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient):
   // GET /api/skills/:name/download
   router.get("/skills/:name/download", asyncHandler(async (req, res) => {
     const name = req.params.name;
+    const agentId = getAgentIdFromRequest(req);
+    const workspaceSkillsDir = getAgentSkillsDir(agentId);
 
     // Check workspace first, then builtin
     let skillDir = path.join(workspaceSkillsDir, name);
@@ -226,6 +329,9 @@ export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient):
   // POST /api/skills/upload
   router.post("/skills/upload", upload.single("file"), asyncHandler(async (req, res) => {
     const file = req.file;
+    const agentId = getAgentIdFromRequest(req);
+    const workspaceSkillsDir = getAgentSkillsDir(agentId);
+
     if (!file) {
       res.status(400).json({ detail: "No file provided" });
       return;
