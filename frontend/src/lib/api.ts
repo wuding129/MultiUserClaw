@@ -223,6 +223,12 @@ export async function getMe(): Promise<AuthUser> {
   return fetchJSON<AuthUser>('/api/auth/me')
 }
 
+export async function generateApiToken(): Promise<{ api_token: string; expires_in_days: number }> {
+  return fetchJSON<{ api_token: string; expires_in_days: number }>('/api/auth/api-token', {
+    method: 'POST',
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Agent functions
 // ---------------------------------------------------------------------------

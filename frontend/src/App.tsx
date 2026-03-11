@@ -14,7 +14,9 @@ import AdminSkills from './pages/AdminSkills'
 import Chat from './pages/Chat'
 import CronJobs from './pages/CronJobs'
 import FileManager from './pages/FileManager'
+import KnowledgeBase from './pages/KnowledgeBase'
 import SystemSettings from './pages/SystemSettings'
+import ApiAccess from './pages/ApiAccess'
 import Nodes from './pages/Nodes'
 import { isLoggedIn } from './lib/api'
 
@@ -38,11 +40,13 @@ export default function App() {
         <Route path="channels" element={<Channels />} />
         <Route path="models" element={<AIModels />} />
         <Route path="files" element={<FileManager />} />
+        <Route path="knowledge" element={<KnowledgeBase />} />
         <Route path="sessions" element={<Sessions />} />
         <Route path="cron" element={<CronJobs />} />
         <Route path="admin" element={<Admin />} />
         <Route path="admin-skills" element={<AdminSkills />} />
         <Route path="nodes" element={<Nodes />} />
+        <Route path="api" element={<ApiAccess />} />
         <Route path="settings" element={<SystemSettings />} />
       </Route>
     </Routes>

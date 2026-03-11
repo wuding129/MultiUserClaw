@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth.service import (
     authenticate_user,
     create_access_token,
+    create_api_token,
     create_refresh_token,
     create_user,
     decode_token,
@@ -120,3 +121,15 @@ async def get_me(user: User = Depends(get_current_user)):
         quota_tier=user.quota_tier,
         is_active=user.is_active,
     )
+
+
+class ApiTokenResponse(BaseModel):
+    api_token: str
+    expires_in_days: int = 365
+
+
+@router.post("/api-token", response_model=ApiTokenResponse)
+async def generate_api_token(user: User = Depends(get_current_user)):
+    """Generate a long-lived API token for programmatic access."""
+    token = create_api_token(user.id, user.role)
+    return ApiTokenResponse(api_token=token)

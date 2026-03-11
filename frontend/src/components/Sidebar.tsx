@@ -9,9 +9,11 @@ import {
   Radio,
   Brain,
   FolderOpen,
+  BookOpen,
   MessageSquare,
   Clock,
   Monitor,
+  Code2,
   Settings,
   User,
   Shield,
@@ -51,6 +53,7 @@ export default function Sidebar() {
         { to: '/channels', icon: Radio, label: '渠道管理' },
         { to: '/models', icon: Brain, label: 'AI 模型' },
         { to: '/files', icon: FolderOpen, label: '文件管理' },
+        { to: '/knowledge', icon: BookOpen, label: '知识库' },
       ],
     },
     {
@@ -58,6 +61,7 @@ export default function Sidebar() {
       items: [
         { to: '/sessions', icon: Clock, label: '会话历史' },
         { to: '/cron', icon: Clock, label: '定时任务' },
+        { to: '/api', icon: Code2, label: 'API设定' },
       ],
     },
     ...(isAdmin ? [{
