@@ -14,6 +14,7 @@ from litellm import acompletion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.service import decode_token
 from app.config import settings
 from app.db.models import Container, UsageRecord, User
 
@@ -130,23 +131,34 @@ async def proxy_chat_completion(
 ):
     """Validate token, check quota, forward to real LLM, record usage."""
 
-    # 1. Authenticate container
-    # In local dev mode (dev_openclaw_url set), skip container token validation
-    # and quota check — the bridge runs locally without a real container record.
+    # 1. Authenticate — supports container token or JWT API token
+    # In local dev mode (dev_openclaw_url set), skip validation and quota check.
     if settings.dev_openclaw_url:
         container = None
         user = None
     else:
-        result = await db.execute(
-            select(Container).where(Container.container_token == container_token)
-        )
-        container = result.scalar_one_or_none()
-        if container is None:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid container token")
+        container = None
+        user = None
 
-        # 2. Get user and check quota
-        user_result = await db.execute(select(User).where(User.id == container.user_id))
-        user = user_result.scalar_one_or_none()
+        # Try JWT API token first
+        jwt_payload = decode_token(container_token)
+        if jwt_payload and jwt_payload.get("type") == "access":
+            user_id = jwt_payload.get("sub")
+            if user_id:
+                user_result = await db.execute(select(User).where(User.id == user_id))
+                user = user_result.scalar_one_or_none()
+
+        # Fallback: container token
+        if user is None:
+            result = await db.execute(
+                select(Container).where(Container.container_token == container_token)
+            )
+            container = result.scalar_one_or_none()
+            if container is None:
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+            user_result = await db.execute(select(User).where(User.id == container.user_id))
+            user = user_result.scalar_one_or_none()
+
         if user is None or not user.is_active:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account disabled")
 

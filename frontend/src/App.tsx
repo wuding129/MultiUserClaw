@@ -14,6 +14,7 @@ import CronJobs from './pages/CronJobs'
 import FileManager from './pages/FileManager'
 import KnowledgeBase from './pages/KnowledgeBase'
 import SystemSettings from './pages/SystemSettings'
+import ApiAccess from './pages/ApiAccess'
 import Nodes from './pages/Nodes'
 import { isLoggedIn } from './lib/api'
 
@@ -41,6 +42,7 @@ export default function App() {
         <Route path="sessions" element={<Sessions />} />
         <Route path="cron" element={<CronJobs />} />
         <Route path="nodes" element={<Nodes />} />
+        <Route path="api" element={<ApiAccess />} />
         <Route path="settings" element={<SystemSettings />} />
       </Route>
     </Routes>

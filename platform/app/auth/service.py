@@ -39,6 +39,13 @@ def create_refresh_token(user_id: str) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 
 
+def create_api_token(user_id: str, role: str, expire_days: int = 365) -> str:
+    """Create a long-lived API token for programmatic access."""
+    expire = datetime.now(timezone.utc) + timedelta(days=expire_days)
+    payload = {"sub": user_id, "role": role, "exp": expire, "type": "access"}
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
 def decode_token(token: str) -> dict | None:
     """Decode and validate a JWT. Returns payload dict or None."""
     try:

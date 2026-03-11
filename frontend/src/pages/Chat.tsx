@@ -21,6 +21,7 @@ import {
   sendChatMessage,
   listAgents,
   uploadFileToWorkspace,
+  getAccessToken,
 } from '../lib/api'
 import type { Session, SessionDetail, AgentInfo } from '../lib/api'
 
@@ -89,6 +90,7 @@ export default function Chat() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const activeSessionKeyRef = useRef<string | null>(null)
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -125,6 +127,7 @@ export default function Chat() {
 
   const loadSession = async (key: string) => {
     setActiveSessionKey(key)
+    activeSessionKeyRef.current = key
     setChatLoading(true)
     setError('')
     setPendingFiles([])
@@ -148,6 +151,7 @@ export default function Chat() {
       setSessions(prev => prev.filter(s => s.key !== key))
       if (activeSessionKey === key) {
         setActiveSessionKey(null)
+        activeSessionKeyRef.current = null
         setMessages([])
         setSearchParams({})
       }
@@ -173,6 +177,7 @@ export default function Chat() {
   const startNewSession = (agentId: string) => {
     const key = `agent:${agentId}:session-${Date.now()}`
     setActiveSessionKey(key)
+    activeSessionKeyRef.current = key
     setMessages([])
     setPendingFiles([])
     setShowNewSession(false)
@@ -283,8 +288,8 @@ export default function Chat() {
 
       await sendChatMessage(activeSessionKey, finalMessage)
 
-      // Poll for response
-      await pollForResponse(activeSessionKey, messages.length + 1)
+      // Wait for response (WebSocket for completion signal + polling for intermediate updates)
+      await waitForResponse(activeSessionKey, messages.length + 1)
       fetchSessions()
     } catch (err: any) {
       setError(err?.message || '发送失败')
@@ -293,29 +298,173 @@ export default function Chat() {
     }
   }
 
-  const pollForResponse = async (key: string, minMessages: number) => {
-    const maxAttempts = 60
+  // WebSocket connection for real-time chat events
+  const wsRef = useRef<WebSocket | null>(null)
+  const wsReadyRef = useRef(false)
+  const wsCompletedRef = useRef(false)
+  const wsFinalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const connectWs = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) return
+
+    const token = getAccessToken()
+    if (!token) return
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = window.location.host
+    const ws = new WebSocket(`${protocol}//${host}/api/openclaw/ws?token=${token}`)
+    wsRef.current = ws
+    wsReadyRef.current = false
+
+    ws.onopen = () => {
+      // Wait for connect.challenge, then send connect handshake
+    }
+
+    ws.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data)
+
+        // Gateway sends connect.challenge first — respond with connect request
+        if (msg.type === 'event' && msg.event === 'connect.challenge') {
+          ws.send(JSON.stringify({
+            type: 'req',
+            id: 'c1',
+            method: 'connect',
+            params: {
+              minProtocol: 3,
+              maxProtocol: 3,
+              client: {
+                id: 'gateway-client',
+                mode: 'backend',
+                displayName: 'nanobot-web',
+                version: '1.0',
+                platform: 'web',
+              },
+              role: 'operator',
+              scopes: [],
+            },
+          }))
+          return
+        }
+
+        // Connect response
+        if (msg.type === 'res' && msg.id === 'c1') {
+          wsReadyRef.current = msg.ok === true
+          return
+        }
+
+        // Chat event — agent turn completion signal
+        // Agent may have multiple turns (tool call → response → tool call → response),
+        // each producing a "final" event. Use debounce: refresh messages on every "final",
+        // but only mark truly completed after 10s of no new "final" events.
+        if (msg.type === 'event' && msg.event === 'chat' && msg.payload) {
+          const { state, sessionKey } = msg.payload
+          if (state === 'final' || state === 'error' || state === 'aborted') {
+            const currentKey = activeSessionKeyRef.current
+            if (sessionKey && currentKey) {
+              const normalizedGw = sessionKey.replace(/:/g, '')
+              const normalizedActive = currentKey.replace(/:/g, '')
+              if (normalizedGw === normalizedActive || sessionKey === currentKey) {
+                // Refresh messages immediately (show latest replies in real-time)
+                getSession(currentKey).then(detail => {
+                  setMessages(detail.messages || [])
+                }).catch(() => {})
+
+                // Debounce: reset the completion timer on every "final"
+                if (wsFinalTimerRef.current) clearTimeout(wsFinalTimerRef.current)
+                wsFinalTimerRef.current = setTimeout(() => {
+                  // No new "final" events for 10s — agent is truly done
+                  wsCompletedRef.current = true
+                  getSession(currentKey).then(detail => {
+                    setMessages(detail.messages || [])
+                    setSending(false)
+                    fetchSessions()
+                  }).catch(() => {})
+                }, 10000)
+              }
+            }
+          }
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+
+    ws.onclose = () => {
+      wsRef.current = null
+      wsReadyRef.current = false
+      // Auto-reconnect after 3 seconds
+      setTimeout(connectWs, 3000)
+    }
+
+    ws.onerror = () => {
+      // onclose will fire after this
+    }
+  }, [fetchSessions])
+
+  // Connect WebSocket on mount
+  useEffect(() => {
+    connectWs()
+    return () => {
+      if (wsFinalTimerRef.current) clearTimeout(wsFinalTimerRef.current)
+      if (wsRef.current) {
+        wsRef.current.onclose = null // prevent auto-reconnect on unmount
+        wsRef.current.close()
+        wsRef.current = null
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const waitForResponse = async (key: string, minMessages: number) => {
+    // Poll for intermediate messages while WebSocket listens for completion.
+    // WebSocket sets wsCompletedRef=true + setSending(false) on state="final".
+    // Polling acts as fallback if WebSocket is not connected.
+    wsCompletedRef.current = false
+    const maxAttempts = 120
     const interval = 2000
+    const stableThresholdMs = 15000
+
+    let lastCount = minMessages
+    let lastChangeTime = Date.now()
+    let hasAssistantReply = false
 
     for (let i = 0; i < maxAttempts; i++) {
       await new Promise(r => setTimeout(r, interval))
+
+      // WebSocket already signaled completion
+      if (wsCompletedRef.current) return
+
+      if (key !== activeSessionKeyRef.current) return
+
       try {
         const detail = await getSession(key)
         const msgs = detail.messages || []
+
         if (msgs.length > minMessages) {
           setMessages(msgs)
+          hasAssistantReply = msgs.some(
+            (m, idx) => idx >= minMessages && m.role === 'assistant'
+          )
+        }
+
+        if (msgs.length !== lastCount) {
+          lastCount = msgs.length
+          lastChangeTime = Date.now()
+        }
+
+        // Stable timeout fallback (in case WS is not connected)
+        if (hasAssistantReply && (Date.now() - lastChangeTime) >= stableThresholdMs) {
           return
         }
       } catch {
-        // continue polling
+        // continue
       }
     }
+
     try {
       const detail = await getSession(key)
       setMessages(detail.messages || [])
-    } catch {
-      // ignore
-    }
+    } catch { /* ignore */ }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -59,12 +59,16 @@ export function sessionsRoutes(client: BridgeGatewayClient): Router {
       });
 
       // Filter: only user and assistant messages (skip tool, system)
-      // Also filter intermediate assistant messages that have tool_calls
+      // Also filter intermediate assistant messages that have tool_calls or empty content
       const messages = (history.messages || [])
         .filter((m) => m.role === "user" || m.role === "assistant")
         .filter((m) => {
+          if (m.role !== "assistant") return true;
           // Skip assistant messages that are just tool calls
-          if (m.role === "assistant" && m.tool_calls) return false;
+          if (m.tool_calls) return false;
+          // Skip assistant messages with empty content (intermediate agent loop artifacts)
+          const text = extractTextContent(m.content);
+          if (!text.trim()) return false;
           return true;
         })
         .map((m) => ({
