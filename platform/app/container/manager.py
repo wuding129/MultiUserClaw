@@ -87,7 +87,7 @@ async def create_container(db: AsyncSession, user_id: str) -> Container:
     try:
         docker_container = client.containers.run(
             image=settings.openclaw_image,
-            command=["node", "bridge/dist/start.js"],
+            command=["node", "dist/start.js"],
             name=container_name,
             detach=True,
             environment={

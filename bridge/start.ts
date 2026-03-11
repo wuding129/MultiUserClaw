@@ -23,24 +23,42 @@ async function waitForGateway(url: string, maxWaitMs = 60_000): Promise<void> {
   throw new Error(`Gateway did not become ready within ${maxWaitMs}ms`);
 }
 
-function resolveGatewayCommand(openclawDir: string): { cmd: string; args: string[] } {
-  // In production (Docker), dist/ exists → use node openclaw.mjs directly
-  const distEntry = path.join(openclawDir, "dist", "entry.js");
-  const openclawMjs = path.join(openclawDir, "openclaw.mjs");
+function resolveGatewayCommand(): { cmd: string; args: string[]; cwd?: string } {
+  const openclawDir = process.env.OPENCLAW_DIR;
 
-  if (fs.existsSync(distEntry)) {
-    return { cmd: process.execPath, args: [openclawMjs] };
+  // 1. Explicit OPENCLAW_DIR (local dev or custom path)
+  if (openclawDir) {
+    const openclawMjs = path.join(openclawDir, "openclaw.mjs");
+    if (fs.existsSync(openclawMjs)) {
+      console.log(`[bridge] Using OPENCLAW_DIR: ${openclawDir}`);
+      return { cmd: process.execPath, args: [openclawMjs], cwd: openclawDir };
+    }
+    // Dev mode: scripts/run-node.mjs
+    const runNode = path.join(openclawDir, "scripts", "run-node.mjs");
+    if (fs.existsSync(runNode)) {
+      console.log("[bridge] Dev mode: using run-node.mjs (will auto-build if needed)");
+      return { cmd: process.execPath, args: [runNode], cwd: openclawDir };
+    }
   }
 
-  // In dev mode, use scripts/run-node.mjs which auto-builds then runs
-  const runNode = path.join(openclawDir, "scripts", "run-node.mjs");
-  if (fs.existsSync(runNode)) {
-    console.log("[bridge] Dev mode: using run-node.mjs (will auto-build if needed)");
-    return { cmd: process.execPath, args: [runNode] };
+  // 2. Globally npm-installed openclaw command
+  try {
+    execSync("which openclaw", { stdio: "ignore" });
+    console.log("[bridge] Using globally installed openclaw");
+    return { cmd: "openclaw", args: [] };
+  } catch { /* not in PATH */ }
+
+  // 3. Fallback: openclaw.mjs in cwd (legacy mode)
+  const cwdMjs = path.join(process.cwd(), "openclaw.mjs");
+  if (fs.existsSync(cwdMjs)) {
+    console.log("[bridge] Fallback: using openclaw.mjs in cwd");
+    return { cmd: process.execPath, args: [cwdMjs] };
   }
 
-  // Fallback: try node openclaw.mjs anyway
-  return { cmd: process.execPath, args: [openclawMjs] };
+  throw new Error(
+    "Cannot find openclaw. Set OPENCLAW_DIR, install openclaw globally (npm i -g openclaw), " +
+    "or ensure openclaw.mjs exists in the working directory."
+  );
 }
 
 async function main(): Promise<void> {
@@ -52,24 +70,9 @@ async function main(): Promise<void> {
   writeOpenclawConfig(config);
   console.log("[bridge] Wrote openclaw config");
 
-  // Resolve openclaw project directory (bridge/ is inside openclaw/)
-  const openclawDir = process.env.OPENCLAW_DIR || path.resolve(process.cwd());
+  // Resolve how to launch the openclaw gateway
+  const { cmd: gatewayCmd, args: gatewayBaseArgs, cwd: gatewayCwd } = resolveGatewayCommand();
 
-  // Ensure openclaw node_modules exist
-  const nodeModulesDir = path.join(openclawDir, "node_modules");
-  if (!fs.existsSync(nodeModulesDir)) {
-    console.log("[bridge] Installing openclaw dependencies (pnpm install)...");
-    try {
-      execSync("pnpm install", { cwd: openclawDir, stdio: "inherit" });
-    } catch (err) {
-      console.error("[bridge] Failed to install openclaw dependencies:", (err as Error).message);
-      console.error("[bridge] Please run 'pnpm install' in the openclaw directory manually.");
-      process.exit(1);
-    }
-  }
-
-  // Start openclaw gateway as a child process
-  const { cmd: gatewayCmd, args: gatewayBaseArgs } = resolveGatewayCommand(openclawDir);
   // Gateway always binds to loopback (no auth needed). External access goes
   // through the bridge WS relay on bridgePort instead.
   const gatewayArgs = [
@@ -82,7 +85,7 @@ async function main(): Promise<void> {
 
   console.log(`[bridge] Starting openclaw gateway: ${gatewayCmd} ${gatewayArgs.join(" ")}`);
   const gatewayProc = spawn(gatewayCmd, gatewayArgs, {
-    cwd: openclawDir,
+    cwd: gatewayCwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: {
       ...process.env,

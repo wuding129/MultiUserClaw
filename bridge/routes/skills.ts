@@ -60,7 +60,7 @@ function parseSkillMd(content: string): { description: string; requiredBins: str
   return { description, requiredBins, platforms };
 }
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 function isBinAvailable(bin: string): boolean {
   try {
@@ -112,11 +112,27 @@ function scanSkillsDir(dir: string, source: string): SkillInfo[] {
   return skills;
 }
 
+function resolveBuiltinSkillsDir(): string {
+  // 1. Explicit OPENCLAW_DIR environment variable
+  if (process.env.OPENCLAW_DIR) {
+    const dir = path.join(process.env.OPENCLAW_DIR, "skills");
+    if (fs.existsSync(dir)) return dir;
+  }
+  // 2. Globally npm-installed openclaw package
+  try {
+    const npmRoot = execSync("npm root -g", { encoding: "utf-8" }).trim();
+    const npmSkills = path.join(npmRoot, "openclaw", "skills");
+    if (fs.existsSync(npmSkills)) return npmSkills;
+  } catch { /* ignore */ }
+  // 3. Fallback: skills/ relative to cwd (legacy mode)
+  return path.resolve(process.cwd(), "skills");
+}
+
 export function skillsRoutes(config: BridgeConfig, client: BridgeGatewayClient): Router {
   const router = Router();
   const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 
-  const builtinSkillsDir = path.resolve(process.cwd(), "skills");
+  const builtinSkillsDir = resolveBuiltinSkillsDir();
   const globalSkillsDir = path.join(config.openclawHome, "skills");
   const workspaceSkillsDir = path.join(config.workspacePath, "skills");
 

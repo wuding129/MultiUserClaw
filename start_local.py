@@ -174,18 +174,18 @@ def start_bridge(env: dict) -> "subprocess.Popen | None":
         warn("端口 18080 已被占用，跳过 bridge")
         return None
 
-    bridge_dir = os.path.join(PROJECT_DIR, "openclaw")
+    bridge_dir = os.path.join(PROJECT_DIR, "bridge")
 
     # 优先使用 tsx 开发模式，否则使用编译后的 JS
     tsx_path = shutil.which("tsx")
     if tsx_path:
-        cmd = [tsx_path, "bridge/start.ts"]
+        cmd = [tsx_path, "start.ts"]
     else:
         npx_path = shutil.which("npx")
         if npx_path:
-            cmd = [npx_path, "tsx", "bridge/start.ts"]
+            cmd = [npx_path, "tsx", "start.ts"]
         else:
-            cmd = ["node", "bridge/dist/start.js"]
+            cmd = ["node", "dist/start.js"]
 
     proc = subprocess.Popen(
         cmd,
@@ -414,6 +414,11 @@ def main():
                         # Strip provider prefix (e.g. "dashscope/qwen3-coder-plus" → "qwen3-coder-plus")
                         model = val.split("/", 1)[-1] if "/" in val else val
                         extra_env["NANOBOT_AGENTS__DEFAULTS__MODEL"] = model
+
+    # Point bridge to local openclaw source for dev mode
+    openclaw_dir = os.path.join(PROJECT_DIR, "openclaw")
+    if os.path.isdir(openclaw_dir):
+        extra_env["OPENCLAW_DIR"] = openclaw_dir
 
     try:
         # 1. PostgreSQL

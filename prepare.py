@@ -357,7 +357,7 @@ def check_frontend_deps(fix: bool) -> CheckResult:
 # ── 主流程 ────────────────────────────────────────────────────────────
 
 OPENCLAW_DIR = PROJECT_DIR / "openclaw"
-BRIDGE_DIR   = OPENCLAW_DIR / "bridge"
+BRIDGE_DIR   = PROJECT_DIR / "bridge"
 
 
 def check_openclaw_deps(fix: bool) -> CheckResult:
@@ -398,17 +398,9 @@ def check_bridge_deps(fix: bool) -> CheckResult:
     if not BRIDGE_DIR.exists():
         return CheckResult(False, f"{BRIDGE_DIR} 目录不存在")
 
-    # Check if package.json exists (copied from bridge-package.json)
     pkg_json = BRIDGE_DIR / "package.json"
     if not pkg_json.exists():
-        bridge_pkg = OPENCLAW_DIR / "bridge-package.json"
-        if bridge_pkg.exists():
-            if fix:
-                info("从 bridge-package.json 复制 package.json...")
-                import shutil as _sh
-                _sh.copy2(bridge_pkg, pkg_json)
-            else:
-                return CheckResult(False, "bridge/package.json 不存在")
+        return CheckResult(False, "bridge/package.json 不存在")
 
     if not fix:
         return CheckResult(False, "bridge node_modules 不存在")

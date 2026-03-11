@@ -205,7 +205,7 @@ def migrate_old_volumes():
 def build_openclaw_image():
     """构建 openclaw 基础镜像（用户容器使用）。"""
     log("构建 openclaw:latest 基础镜像...")
-    run("docker build --no-cache -f openclaw/Dockerfile.bridge -t openclaw:latest openclaw/")
+    run("docker build --no-cache -t openclaw:latest bridge/")
     success("openclaw:latest 构建完成")
 
 
@@ -458,7 +458,7 @@ def main():
         # 并行构建: openclaw 基础镜像 + compose 服务
         log("并行构建 openclaw 基础镜像 + compose 服务...")
         tasks = {
-            "openclaw:latest": "docker build --no-cache -f openclaw/Dockerfile.bridge -t openclaw:latest openclaw/",
+            "openclaw:latest": "docker build --no-cache -t openclaw:latest bridge/",
             "compose services": f"docker compose {compose_args} build --parallel",
         }
         with concurrent.futures.ThreadPoolExecutor(max_workers=len(tasks)) as pool:

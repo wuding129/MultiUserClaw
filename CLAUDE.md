@@ -74,15 +74,12 @@ npm run lint     # ESLint
 
 ### OpenClaw Bridge (TypeScript/Node.js)
 ```bash
-cd openclaw
-pnpm install
-tsx bridge/start.ts   # Start bridge + OpenClaw Gateway
+cd bridge
+npm install
+tsx start.ts          # Start bridge + OpenClaw Gateway (dev mode)
 
-# Build OpenClaw
-pnpm build
-
-# Run tests
-pnpm test
+# Build bridge
+npx tsc
 ```
 
 ## Key Components
@@ -103,7 +100,7 @@ Python FastAPI application - the control center for multi-tenant management.
 - Re-access → unpause (instant recovery)
 - Idle 30 days → archive
 
-### OpenClaw Bridge (`openclaw/bridge/`)
+### OpenClaw Bridge (`bridge/`)
 Adapter layer connecting Platform Gateway to OpenClaw Agent Engine.
 
 | File | Purpose |
