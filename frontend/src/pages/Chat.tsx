@@ -288,7 +288,7 @@ export default function Chat() {
 
       await sendChatMessage(activeSessionKey, finalMessage)
 
-      // Wait for response (WebSocket for completion signal + polling for intermediate updates)
+      // Wait for response: WebSocket preferred, fallback to polling
       await waitForResponse(activeSessionKey, messages.length + 1)
       fetchSessions()
     } catch (err: any) {
@@ -303,6 +303,7 @@ export default function Chat() {
   const wsReadyRef = useRef(false)
   const wsCompletedRef = useRef(false)
   const wsFinalTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wsMessageReceivedRef = useRef(false)  // 标记 WS 是否已收到消息更新
 
   const connectWs = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -365,6 +366,9 @@ export default function Chat() {
               const normalizedGw = sessionKey.replace(/:/g, '')
               const normalizedActive = currentKey.replace(/:/g, '')
               if (normalizedGw === normalizedActive || sessionKey === currentKey) {
+                // Mark that WS has handled this response - prevents polling from also updating
+                wsMessageReceivedRef.current = true
+
                 // Refresh messages immediately (show latest replies in real-time)
                 getSession(currentKey).then(detail => {
                   setMessages(detail.messages || [])
@@ -375,10 +379,6 @@ export default function Chat() {
                 wsFinalTimerRef.current = setTimeout(() => {
                   // No new "final" events for 10s — agent is truly done
                   wsCompletedRef.current = true
-                  // Final refresh — handleSend's finally block handles setSending(false)
-                  getSession(currentKey).then(detail => {
-                    setMessages(detail.messages || [])
-                  }).catch(() => {})
                 }, 10000)
               }
             }
@@ -392,6 +392,7 @@ export default function Chat() {
     ws.onclose = () => {
       wsRef.current = null
       wsReadyRef.current = false
+      wsMessageReceivedRef.current = false
       // Auto-reconnect after 3 seconds
       setTimeout(connectWs, 3000)
     }
@@ -416,26 +417,33 @@ export default function Chat() {
 
   const waitForResponse = async (key: string, minMessages: number) => {
     wsCompletedRef.current = false
+    wsMessageReceivedRef.current = false
 
-    // If WebSocket is connected, just wait for it to signal completion.
-    // The WS onmessage handler refreshes messages in real-time and sets
-    // wsCompletedRef=true when done.
-    if (wsRef.current?.readyState === WebSocket.OPEN && wsReadyRef.current) {
+    // Check if WebSocket is available
+    const wsAvailable = wsRef.current?.readyState === WebSocket.OPEN && wsReadyRef.current
+
+    if (wsAvailable) {
+      // WebSocket mode: just wait for completion signal from WS
+      // WS onmessage handler already updates messages in real-time
       const maxWaitMs = 240000 // 4 minutes max
       const checkInterval = 500
       const startTime = Date.now()
+
       while (Date.now() - startTime < maxWaitMs) {
         await new Promise(r => setTimeout(r, checkInterval))
         if (wsCompletedRef.current) return
         if (key !== activeSessionKeyRef.current) return
-        // If WS disconnected mid-wait, fall through to polling
+        // If WS disconnected, switch to polling
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) break
       }
-      // If WS completed while we were checking, return
+
+      // WS completed normally
       if (wsCompletedRef.current) return
+
+      // WS disconnected mid-wait: fall through to polling for safety
     }
 
-    // Fallback: HTTP polling when WebSocket is not available
+    // Polling mode: HTTP polling when WebSocket is not available
     const maxAttempts = 120
     const interval = 2000
     const stableThresholdMs = 15000
@@ -453,8 +461,13 @@ export default function Chat() {
       try {
         const detail = await getSession(key)
         const msgs = detail.messages || []
+
         if (msgs.length > minMessages) {
-          setMessages(msgs)
+          // Only update if WS hasn't already handled this response
+          // This prevents duplicate message updates when WS reconnects
+          if (!wsMessageReceivedRef.current) {
+            setMessages(msgs)
+          }
           hasAssistantReply = msgs.some(
             (m, idx) => idx >= minMessages && m.role === 'assistant'
           )
@@ -473,10 +486,13 @@ export default function Chat() {
       }
     }
 
-    try {
-      const detail = await getSession(key)
-      setMessages(detail.messages || [])
-    } catch { /* ignore */ }
+    // Final refresh only if WS hasn't handled it
+    if (!wsMessageReceivedRef.current) {
+      try {
+        const detail = await getSession(key)
+        setMessages(detail.messages || [])
+      } catch { /* ignore */ }
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

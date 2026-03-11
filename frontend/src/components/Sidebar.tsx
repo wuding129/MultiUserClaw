@@ -54,6 +54,7 @@ export default function Sidebar() {
         { to: '/models', icon: Brain, label: 'AI 模型' },
         { to: '/files', icon: FolderOpen, label: '文件管理' },
         { to: '/knowledge', icon: BookOpen, label: '知识库' },
+        { to: '/nodes', icon: Monitor, label: 'Node 管理' },
       ],
     },
     {
@@ -69,7 +70,6 @@ export default function Sidebar() {
       items: [
         { to: '/admin', icon: Shield, label: '用户管理' },
         { to: '/admin-skills', icon: Zap, label: '技能管理' },
-        { to: '/nodes', icon: Monitor, label: 'Node 管理' },
         { to: '/settings', icon: Settings, label: '系统设置' },
       ],
     }] : []),

@@ -58,7 +58,7 @@ export default function App() {
         <Route path="cron" element={<CronJobs />} />
         <Route path="admin" element={<RequireAdmin><Admin /></RequireAdmin>} />
         <Route path="admin-skills" element={<RequireAdmin><AdminSkills /></RequireAdmin>} />
-        <Route path="nodes" element={<RequireAdmin><Nodes /></RequireAdmin>} />
+        <Route path="nodes" element={<Nodes />} />
         <Route path="api" element={<ApiAccess />} />
         <Route path="settings" element={<RequireAdmin><SystemSettings /></RequireAdmin>} />
       </Route>
