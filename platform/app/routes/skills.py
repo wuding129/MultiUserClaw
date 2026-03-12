@@ -408,18 +408,25 @@ async def get_pending_review_task(
     if not task:
         return {"task": None}
 
-    # Assign to this agent (打卡：记录谁领取的，什么时候领取的)
+    # 打卡：记录谁领取的，什么时候领取的
     task.status = "assigned"
     task.assigned_agent = agent_id
     task.assigned_at = datetime.utcnow()
     await db.commit()
     await db.refresh(task)
 
+    # Get submission info for file_path
+    submission = (await db.execute(
+        select(SkillSubmission).where(SkillSubmission.id == task.submission_id)
+    )).scalar_one_or_none()
+
     return {
         "task": {
             "id": task.id,
             "submission_id": task.submission_id,
             "skill_content": task.skill_content,
+            "file_path": submission.file_path if submission else None,
+            "source_url": submission.source_url if submission else None,
             "assigned_at": task.assigned_at.isoformat(),
         }
     }
