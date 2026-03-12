@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import json
 import os
 import tarfile
 import uuid
@@ -782,12 +783,22 @@ async def admin_approve_submission(
         await db.flush()
         skill_id = skill.id
 
-    # Create notification for user
+    # Create notification for user (include AI review results)
+    try:
+        ai_result = json.loads(sub.ai_review_result) if sub.ai_review_result else {}
+        ai_score = ai_result.get("score", 0)
+        ai_summary = ai_result.get("summary", "")
+        content = f"恭喜！您的技能已通过管理员审核并已上架到精选技能商店。\n\n【AI初审】评分: {ai_score}/100\n{ai_summary}"
+        if req.admin_notes:
+            content += f"\n\n【管理员备注】{req.admin_notes}"
+    except Exception:
+        content = "恭喜！您的技能已通过管理员审核并已上架到精选技能商店。"
+
     notification = Notification(
         user_id=sub.user_id,
         type="skill_approved",
         title=f"技能 '{sub.skill_name}' 已通过审核",
-        content=f"恭喜！您的技能已通过管理员审核并已上架到精选技能商店。",
+        content=content,
         link="/skills?tab=curated",
     )
     db.add(notification)
@@ -818,12 +829,23 @@ async def admin_reject_submission(
         .values(status="rejected", admin_notes=req.admin_notes, reviewed_by=admin.id)
     )
 
-    # Create notification for user
+    # Create notification for user (include AI review results)
+    try:
+        ai_result = json.loads(sub.ai_review_result) if sub.ai_review_result else {}
+        ai_score = ai_result.get("score", 0)
+        ai_summary = ai_result.get("summary", "")
+        content = f"很遗憾，您的技能未通过管理员审核。\n\n【AI初审】评分: {ai_score}/100\n{ai_summary}"
+        if req.admin_notes:
+            content += f"\n\n【管理员备注】{req.admin_notes}"
+        content += "\n\n请修改后重新提交。"
+    except Exception:
+        content = f"很遗憾，您的技能未通过审核。{req.admin_notes or '请查看审核详情并修改后重新提交。'}"
+
     notification = Notification(
         user_id=sub.user_id,
         type="skill_rejected",
         title=f"技能 '{sub.skill_name}' 审核未通过",
-        content=f"很遗憾，您的技能未通过审核。{req.admin_notes or '请查看审核详情并修改后重新提交。'}",
+        content=content,
         link="/skills?tab=curated",
     )
     db.add(notification)
