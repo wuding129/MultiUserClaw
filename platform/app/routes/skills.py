@@ -788,7 +788,7 @@ async def admin_approve_submission(
     )).scalar_one_or_none()
     if sub is None:
         raise HTTPException(status_code=404, detail="Submission not found")
-    if sub.status != "pending":
+    if sub.status in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail=f"Submission already {sub.status}")
 
     await db.execute(
@@ -840,7 +840,7 @@ async def admin_reject_submission(
     )).scalar_one_or_none()
     if sub is None:
         raise HTTPException(status_code=404, detail="Submission not found")
-    if sub.status != "pending":
+    if sub.status in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail=f"Submission already {sub.status}")
 
     await db.execute(
