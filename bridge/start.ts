@@ -248,26 +248,33 @@ async function main(): Promise<void> {
   await client.start();
   console.log("[bridge] Connected to gateway");
 
-  // Create skill-reviewer agent for admin if it doesn't exist
-  try {
-    const agents = await client.request<Array<{ id: string }>>("agents.list", {});
-    const hasReviewer = agents.some((a) => a.id === "skill-reviewer");
-    if (!hasReviewer) {
-      console.log("[bridge] Creating skill-reviewer agent...");
-      await client.request("agents.create", {
-        name: "skill-reviewer",
-        workspace: "~/.openclaw/workspace-skill-reviewer",
-        emoji: "🔍",
-      });
-      console.log("[bridge] Created skill-reviewer agent");
-    } else {
-      console.log("[bridge] skill-reviewer agent already exists");
-    }
+  // Configure skill review mode
+  if (config.enableAutoReview) {
+    console.log("[bridge] Auto-review mode: ENABLED");
+    // Create skill-reviewer agent for admin if it doesn't exist
+    try {
+      const agents = await client.request<Array<{ id: string }>>("agents.list", {});
+      const hasReviewer = agents.some((a) => a.id === "skill-reviewer");
+      if (!hasReviewer) {
+        console.log("[bridge] Creating skill-reviewer agent...");
+        await client.request("agents.create", {
+          name: "skill-reviewer",
+          workspace: "~/.openclaw/workspace-skill-reviewer",
+          emoji: "🔍",
+        });
+        console.log("[bridge] Created skill-reviewer agent");
+      } else {
+        console.log("[bridge] skill-reviewer agent already exists");
+      }
 
-    // Start auto-review loop
-    startAutoReviewLoop(config);
-  } catch (err) {
-    console.error("[bridge] Failed to create skill-reviewer agent:", err);
+      // Start auto-review loop
+      startAutoReviewLoop(config);
+    } catch (err) {
+      console.error("[bridge] Failed to setup auto-review:", err);
+    }
+  } else {
+    console.log("[bridge] Auto-review mode: DISABLED (manual review only)");
+    console.log("[bridge] Set BRIDGE_ENABLE_AUTO_REVIEW=true to enable AI auto-review");
   }
 
   // Start bridge HTTP server
