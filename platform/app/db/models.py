@@ -131,3 +131,19 @@ class Notification(Base):
     link: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)  # optional link to related page
     is_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class ReviewTask(Base):
+    """Skill review tasks for the review agent."""
+
+    __tablename__ = "review_tasks"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    submission_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)  # links to SkillSubmission
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending | assigned | completed | failed
+    assigned_agent: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # agent id that claimed this task
+    skill_content: Mapped[str] = mapped_column(Text, nullable=False)  # SKILL.md content
+    review_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON review result
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())

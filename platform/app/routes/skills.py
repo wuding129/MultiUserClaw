@@ -22,7 +22,7 @@ from app.auth.dependencies import get_current_user, get_user_flexible, require_a
 from app.config import settings
 from app.container.manager import _docker, get_container
 from app.db.engine import get_db
-from app.db.models import Container, CuratedSkill, SkillSubmission, User
+from app.db.models import Container, CuratedSkill, ReviewTask, SkillSubmission, User
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -319,10 +319,8 @@ async def submit_skill_with_file(
         status="pending",
     )
     db.add(submission)
-    await db.commit()
-    await db.refresh(submission)
 
-    # Trigger AI review
+    # Create review task for the agent
     try:
         with zipfile.ZipFile(file_path) as zf:
             # Find SKILL.md
@@ -334,12 +332,19 @@ async def submit_skill_with_file(
 
             if skill_md_path:
                 skill_content = zf.read(skill_md_path).decode("utf-8")
-                review_result = await _ai_review_skill(skill_content)
-                if review_result:
-                    submission.ai_review_result = review_result
-                    await db.commit()
+
+                # Create review task
+                review_task = ReviewTask(
+                    submission_id=submission_id,
+                    status="pending",
+                    skill_content=skill_content,
+                )
+                db.add(review_task)
     except Exception as e:
-        print(f"[skill-review] Failed to run AI review: {e}")
+        print(f"[skill-review] Failed to create review task: {e}")
+
+    await db.commit()
+    await db.refresh(submission)
 
     return {"ok": True, "id": submission.id}
 
@@ -367,6 +372,78 @@ async def my_submissions(
         for s in rows
     ]
 
+
+# ---------------------------------------------------------------------------
+# Review Task API (for skill-reviewer agent)
+# ---------------------------------------------------------------------------
+
+@user_router.get("/reviews/pending")
+async def get_pending_review_task(
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the next pending review task (for agent to claim)."""
+    # Get a pending task not assigned to any agent
+    task = (await db.execute(
+        select(ReviewTask)
+        .where(ReviewTask.status == "pending")
+        .order_by(ReviewTask.created_at.asc())
+        .limit(1)
+    )).scalar_one_or_none()
+
+    if not task:
+        return {"task": None}
+
+    # Assign to caller (agent will identify itself via header or we can add auth)
+    task.status = "assigned"
+    await db.commit()
+    await db.refresh(task)
+
+    return {
+        "task": {
+            "id": task.id,
+            "submission_id": task.submission_id,
+            "skill_content": task.skill_content,
+        }
+    }
+
+
+class SubmitReviewResultRequest(BaseModel):
+    task_id: str
+    review_result: str
+    error: str | None = None
+
+
+@user_router.post("/reviews/result")
+async def submit_review_result(
+    req: SubmitReviewResultRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Submit review result from the agent."""
+    task = (await db.execute(
+        select(ReviewTask).where(ReviewTask.id == req.task_id)
+    )).scalar_one_or_none()
+
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if req.error:
+        task.status = "failed"
+        task.error = req.error
+    else:
+        task.status = "completed"
+        task.review_result = req.review_result
+
+        # Also update the submission's ai_review_result
+        submission = (await db.execute(
+            select(SkillSubmission).where(SkillSubmission.id == task.submission_id)
+        )).scalar_one_or_none()
+
+        if submission:
+            submission.ai_review_result = req.review_result
+
+    await db.commit()
+
+    return {"ok": True}
 
 
 # ---------------------------------------------------------------------------
@@ -429,99 +506,11 @@ Now provide your review in JSON format:"""
 
 
 async def _ai_review_skill(skill_content: str) -> str | None:
-    """Use LLM to review a skill. Returns JSON review result or None on failure.
-
-    Security considerations:
-    - Only review the SKILL.md content, not execute any code
-    - Check for suspicious patterns in the skill content
-    - Flag potential security issues
-    """
-    import json
-    import re
-
-    try:
-        from app.config import settings
-
-        # Build prompt with security focus
-        prompt = REVIEW_PROMPT.format(skill_content=skill_content[:6000])
-
-        # Try to use available LLM providers
-        # Priority: Anthropic > OpenAI > DashScope > others
-        result = None
-
-        if settings.anthropic_api_key:
-            try:
-                import anthropic
-                client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-                response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2000,
-                    temperature=0.2,
-                    system="You are a skilled security reviewer. Review skill packages for security issues.",
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                result = response.content[0].text
-            except Exception as e:
-                print(f"[skill-review] Anthropic API failed: {e}")
-
-        if not result and settings.openai_api_key:
-            try:
-                import openai
-                client = openai.OpenAI(api_key=settings.openai_api_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    temperature=0.2,
-                    messages=[
-                        {"role": "system", "content": "You are a skilled security reviewer. Review skill packages for security issues."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                result = response.choices[0].message.content
-            except Exception as e:
-                print(f"[skill-review] OpenAI API failed: {e}")
-
-        if not result and settings.dashscope_api_key:
-            try:
-                import openai
-                client = openai.OpenAI(
-                    api_key=settings.dashscope_api_key,
-                    base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-                )
-                response = client.chat.completions.create(
-                    model="qwen-plus",
-                    temperature=0.2,
-                    messages=[
-                        {"role": "system", "content": "You are a skilled security reviewer. Review skill packages for security issues."},
-                        {"role": "user", "content": prompt}
-                    ]
-                )
-                result = response.choices[0].message.content
-            except Exception as e:
-                print(f"[skill-review] DashScope API failed: {e}")
-
-        if not result:
-            print("[skill-review] No LLM provider available")
-            return None
-
-        # Extract JSON from response
-        json_match = re.search(r'\{[\s\S]*\}', result)
-        if json_match:
-            json_str = json_match.group(0)
-            # Validate it's valid JSON
-            review_data = json.loads(json_str)
-
-            # Security check: ensure no code execution was requested
-            # The review should be about the skill content, not executing it
-            if "approved" not in review_data:
-                return None
-
-            return json_str
-
-        return None
-
-    except Exception as e:
-        print(f"[skill-review] AI review failed: {e}")
-        return None
+    """Use LLM to review a skill. Returns JSON review result or None on failure."""
+    # TODO: Implement AI review using the LLM proxy
+    # For now, return None to skip AI review
+    # The admin can still do manual review
+    return None
 
 
 # ---------------------------------------------------------------------------
