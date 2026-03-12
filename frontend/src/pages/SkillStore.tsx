@@ -46,6 +46,11 @@ export default function SkillStore() {
   const [submitting, setSubmitting] = useState(false)
   const [submissions, setSubmissions] = useState<SkillSubmission[]>([])
 
+  // Submit from installed skills
+  const [submittingSkill, setSubmittingSkill] = useState<string | null>(null)
+  const [showSubmitFromInstalled, setShowSubmitFromInstalled] = useState<string | null>(null)
+  const [submitFromInstalledDesc, setSubmitFromInstalledDesc] = useState('')
+
   const refreshSkills = () => {
     listSkills().then(setSkills).catch(() => setSkills([]))
   }
@@ -157,6 +162,27 @@ export default function SkillStore() {
       // ignore
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  // Handle submit from installed skill
+  const handleSubmitFromInstalled = async (skill: Skill) => {
+    setSubmittingSkill(skill.name)
+    try {
+      await submitSkill({
+        skill_name: skill.name,
+        description: submitFromInstalledDesc || skill.description || '',
+        source_url: skill.source || undefined,
+      })
+      setShowSubmitFromInstalled(null)
+      setSubmitFromInstalledDesc('')
+      mySubmissions().then(setSubmissions).catch(() => {})
+      // Switch to curated tab to show submission
+      setTab('curated')
+    } catch (err: any) {
+      setInstallError(err?.message || '提交失败')
+    } finally {
+      setSubmittingSkill(null)
     }
   }
 
@@ -345,21 +371,60 @@ export default function SkillStore() {
             {submissions.length > 0 && (
               <div className="mt-4 space-y-2">
                 <h3 className="text-sm font-medium text-dark-text-secondary">我的提交</h3>
-                {submissions.map(s => (
-                  <div key={s.id} className="flex items-center justify-between rounded-lg border border-dark-border bg-dark-card px-4 py-2.5">
-                    <div>
-                      <span className="text-sm text-dark-text">{s.skill_name}</span>
-                      {s.description && <span className="ml-2 text-xs text-dark-text-secondary">{s.description}</span>}
+                {submissions.map(s => {
+                  const aiResult = s.ai_review_result
+                  const hasAIReview = s.status === 'ai_reviewed' || s.status === 'approved' || s.status === 'rejected'
+                  return (
+                    <div key={s.id} className="rounded-lg border border-dark-border bg-dark-card px-4 py-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-sm text-dark-text">{s.skill_name}</span>
+                          {s.description && <span className="ml-2 text-xs text-dark-text-secondary">{s.description}</span>}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {aiResult && (
+                            <span className={`rounded px-2 py-0.5 text-xs ${
+                              aiResult.approved ? 'bg-accent-green/10 text-accent-green' : 'bg-accent-red/10 text-accent-red'
+                            }`}>
+                              AI评分: {aiResult.score}
+                            </span>
+                          )}
+                          <span className={`rounded px-2 py-0.5 text-xs ${
+                            s.status === 'approved' ? 'bg-accent-green/10 text-accent-green' :
+                            s.status === 'rejected' ? 'bg-accent-red/10 text-accent-red' :
+                            s.status === 'ai_reviewed' ? 'bg-accent-blue/10 text-accent-blue' :
+                            'bg-accent-yellow/10 text-accent-yellow'
+                          }`}>
+                            {s.status === 'approved' ? '已通过' : s.status === 'rejected' ? '已拒绝' : s.status === 'ai_reviewed' ? 'AI已审' : '审核中'}
+                          </span>
+                        </div>
+                      </div>
+                      {aiResult && aiResult.issues && aiResult.issues.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-dark-border/50">
+                          <p className="text-xs text-dark-text-secondary mb-1">AI审核建议：</p>
+                          <ul className="space-y-1">
+                            {aiResult.issues.slice(0, 2).map((issue, idx) => (
+                              <li key={idx} className="text-xs text-dark-text-secondary">
+                                <span className={issue.severity === 'critical' ? 'text-accent-red' : issue.severity === 'major' ? 'text-accent-yellow' : 'text-dark-text-secondary'}>
+                                  [{issue.severity === 'critical' ? '关键' : issue.severity === 'major' ? '重要' : '建议'}]
+                                </span>{' '}
+                                {issue.message}
+                              </li>
+                            ))}
+                            {aiResult.issues.length > 2 && (
+                              <li className="text-xs text-dark-text-secondary">...还有 {aiResult.issues.length - 2} 条建议</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      {s.admin_notes && (
+                        <div className="mt-2 pt-2 border-t border-dark-border/50">
+                          <p className="text-xs text-dark-text-secondary">管理员备注: {s.admin_notes}</p>
+                        </div>
+                      )}
                     </div>
-                    <span className={`rounded px-2 py-0.5 text-xs ${
-                      s.status === 'approved' ? 'bg-accent-green/10 text-accent-green' :
-                      s.status === 'rejected' ? 'bg-accent-red/10 text-accent-red' :
-                      'bg-accent-yellow/10 text-accent-yellow'
-                    }`}>
-                      {s.status === 'approved' ? '已通过' : s.status === 'rejected' ? '已拒绝' : '审核中'}
-                    </span>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
@@ -520,6 +585,41 @@ export default function SkillStore() {
                           <span className="text-xs text-accent-yellow">已禁用</span>
                         )}
                       </div>
+                      {/* Submit to curated */}
+                      {showSubmitFromInstalled === skill.name ? (
+                        <div className="mt-3 pt-3 border-t border-dark-border/50 space-y-2">
+                          <textarea
+                            value={submitFromInstalledDesc}
+                            onChange={e => setSubmitFromInstalledDesc(e.target.value)}
+                            placeholder="简要描述这个技能的功能..."
+                            rows={2}
+                            className="w-full rounded-lg border border-dark-border bg-dark-bg px-2 py-1.5 text-xs text-dark-text outline-none focus:border-accent-blue resize-none"
+                          />
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleSubmitFromInstalled(skill)}
+                              disabled={submittingSkill === skill.name}
+                              className="flex-1 rounded bg-accent-blue/10 text-accent-blue text-xs py-1.5 hover:bg-accent-blue/20 disabled:opacity-50"
+                            >
+                              {submittingSkill === skill.name ? '提交中...' : '确认提交'}
+                            </button>
+                            <button
+                              onClick={() => { setShowSubmitFromInstalled(null); setSubmitFromInstalledDesc('') }}
+                              className="flex-1 rounded bg-dark-border/30 text-dark-text-secondary text-xs py-1.5 hover:bg-dark-border/50"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowSubmitFromInstalled(skill.name)}
+                          className="mt-3 flex items-center gap-1 text-xs text-accent-blue hover:text-accent-blue/80"
+                        >
+                          <Send size={12} />
+                          提交到精选
+                        </button>
+                      )}
                     </div>
                   )
                 })}

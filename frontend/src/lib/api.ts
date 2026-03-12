@@ -624,6 +624,18 @@ export interface CuratedSkill {
   installed: boolean
 }
 
+export interface SkillReviewResult {
+  approved: boolean
+  score: number
+  issues: {
+    severity: 'critical' | 'major' | 'minor'
+    category: string
+    message: string
+    suggestion: string
+  }[]
+  summary: string
+}
+
 export interface SkillSubmission {
   id: string
   user_id: string
@@ -631,6 +643,7 @@ export interface SkillSubmission {
   description: string
   source_url: string | null
   status: string
+  ai_review_result: SkillReviewResult | null
   admin_notes: string | null
   reviewed_by: string | null
   created_at: string

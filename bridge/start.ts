@@ -1,7 +1,7 @@
 import { spawn, execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig, writeOpenclawConfig } from "./config.js";
+import { loadConfig, writeOpenclawConfig, type BridgeConfig } from "./config.js";
 import { BridgeGatewayClient } from "./gateway-client.js";
 import { createServer } from "./server.js";
 
@@ -59,6 +59,137 @@ function resolveGatewayCommand(): { cmd: string; args: string[]; cwd?: string } 
     "Cannot find openclaw. Set OPENCLAW_DIR, install openclaw globally (npm i -g openclaw), " +
     "or ensure openclaw.mjs exists in the working directory."
   );
+}
+
+// Auto-review loop for skill-reviewer agent
+function startAutoReviewLoop(config: BridgeConfig): void {
+  const bridgeBase = `http://127.0.0.1:${config.bridgePort}`;
+
+  async function pollAndReview() {
+    try {
+      // Poll for pending task
+      const resp = await fetch(`${bridgeBase}/api/reviews/pending`);
+      if (!resp.ok) {
+        console.error("[auto-review] Failed to poll:", resp.status);
+        return;
+      }
+
+      const data = await resp.json();
+      if (!data.task) {
+        // No pending tasks
+        return;
+      }
+
+      const { id: taskId, skill_content: skillContent, file_path: filePath } = data.task;
+      console.log(`[auto-review] Got task ${taskId}, reviewing...`);
+
+      // Perform AI review
+      const reviewResult = await performAIReview(skillContent, filePath);
+
+      // Submit result
+      const submitResp = await fetch(`${bridgeBase}/api/reviews/result`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          task_id: taskId,
+          review_result: JSON.stringify(reviewResult),
+        }),
+      });
+
+      if (submitResp.ok) {
+        console.log(`[auto-review] Task ${taskId} completed, score: ${reviewResult.score}`);
+      } else {
+        console.error("[auto-review] Failed to submit result:", submitResp.status);
+      }
+    } catch (err) {
+      console.error("[auto-review] Error:", err);
+    }
+  }
+
+  // Run every 30 seconds
+  setInterval(pollAndReview, 30_000);
+  console.log("[auto-review] Auto-review loop started (interval: 30s)");
+
+  // Run immediately on start
+  pollAndReview();
+}
+
+// Simple AI review function (placeholder - actual implementation would use LLM)
+async function performAIReview(skillContent: string, filePath?: string): Promise<{
+  approved: boolean;
+  score: number;
+  issues: Array<{ severity: string; category: string; message: string; suggestion: string }>;
+  summary: string;
+}> {
+  // Check for basic requirements
+  const issues: Array<{ severity: string; category: string; message: string; suggestion: string }> = [];
+
+  // Check for SKILL.md frontmatter
+  if (!skillContent.includes("---")) {
+    issues.push({
+      severity: "critical",
+      category: "format",
+      message: "Missing frontmatter delimiter",
+      suggestion: "Add --- at the start and end of frontmatter",
+    });
+  }
+
+  // Check for name field
+  const nameMatch = skillContent.match(/name:\s*(\S+)/);
+  if (!nameMatch) {
+    issues.push({
+      severity: "critical",
+      category: "format",
+      message: "Missing 'name' field in frontmatter",
+      suggestion: "Add name: your-skill-name to frontmatter",
+    });
+  }
+
+  // Check for description field
+  const descMatch = skillContent.match(/description:\s*"?([^"\n]+)/);
+  if (!descMatch) {
+    issues.push({
+      severity: "major",
+      category: "format",
+      message: "Missing 'description' field in frontmatter",
+      suggestion: "Add description: Brief description of what this skill does",
+    });
+  }
+
+  // Check description length
+  if (descMatch) {
+    const desc = descMatch[1];
+    if (desc.length < 20) {
+      issues.push({
+        severity: "minor",
+        category: "description",
+        message: "Description too short",
+        suggestion: "Make description at least 20 characters to explain the skill clearly",
+      });
+    }
+  }
+
+  // Calculate score
+  const criticalCount = issues.filter((i) => i.severity === "critical").length;
+  const majorCount = issues.filter((i) => i.severity === "major").length;
+  const minorCount = issues.filter((i) => i.severity === "minor").length;
+
+  let score = 100;
+  score -= criticalCount * 30;
+  score -= majorCount * 15;
+  score -= minorCount * 5;
+  score = Math.max(0, score);
+
+  const approved = criticalCount === 0 && score >= 60;
+
+  return {
+    approved,
+    score,
+    issues,
+    summary: approved
+      ? "Skill meets basic requirements."
+      : `Found ${criticalCount} critical, ${majorCount} major, ${minorCount} minor issues.`,
+  };
 }
 
 async function main(): Promise<void> {
@@ -132,6 +263,9 @@ async function main(): Promise<void> {
     } else {
       console.log("[bridge] skill-reviewer agent already exists");
     }
+
+    // Start auto-review loop
+    startAutoReviewLoop(config);
   } catch (err) {
     console.error("[bridge] Failed to create skill-reviewer agent:", err);
   }

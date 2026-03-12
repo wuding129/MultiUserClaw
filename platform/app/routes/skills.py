@@ -22,7 +22,7 @@ from app.auth.dependencies import get_current_user, get_user_flexible, require_a
 from app.config import settings
 from app.container.manager import _docker, get_container
 from app.db.engine import get_db
-from app.db.models import Container, CuratedSkill, ReviewTask, SkillSubmission, User
+from app.db.models import Container, CuratedSkill, Notification, ReviewTask, SkillSubmission, User
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -463,6 +463,7 @@ async def submit_review_result(
         )
 
     # 打卡：完成审核
+    notification = None
     if req.error:
         task.status = "failed"
         task.error = req.error
@@ -478,6 +479,37 @@ async def submit_review_result(
         if submission:
             submission.ai_review_result = req.review_result
             submission.status = "ai_reviewed"  # Mark as AI reviewed, waiting for admin
+
+            # Create notification for user
+            try:
+                import json
+                review_data = json.loads(req.review_result)
+                score = review_data.get("score", 0)
+                approved = review_data.get("approved", False)
+
+                if approved:
+                    title = f"技能 '{submission.skill_name}' AI审核通过"
+                    content = f"评分: {score}/100\n您的技能已通过AI自动审核，等待管理员最终审核。"
+                else:
+                    issues = review_data.get("issues", [])
+                    issue_summary = ""
+                    if issues:
+                        critical_count = sum(1 for i in issues if i.get("severity") == "critical")
+                        if critical_count > 0:
+                            issue_summary = f"发现 {critical_count} 个关键问题需修复。"
+                    title = f"技能 '{submission.skill_name}' AI审核未通过"
+                    content = f"评分: {score}/100\n{issue_summary}\n请查看审核详情并修改后重新提交。"
+
+                notification = Notification(
+                    user_id=submission.user_id,
+                    type="skill_ai_review",
+                    title=title,
+                    content=content,
+                    link=f"/skills?tab=curated",
+                )
+                db.add(notification)
+            except Exception as e:
+                print(f"[skill-review] Failed to create notification: {e}")
 
     await db.commit()
 
@@ -781,6 +813,16 @@ async def admin_approve_submission(
         await db.flush()
         skill_id = skill.id
 
+    # Create notification for user
+    notification = Notification(
+        user_id=sub.user_id,
+        type="skill_approved",
+        title=f"技能 '{sub.skill_name}' 已通过审核",
+        content=f"恭喜！您的技能已通过管理员审核并已上架到精选技能商店。",
+        link="/skills?tab=curated",
+    )
+    db.add(notification)
+
     await db.commit()
     return {"ok": True, "curated_skill_id": skill_id or (existing.id if existing else None)}
 
@@ -806,5 +848,16 @@ async def admin_reject_submission(
         .where(SkillSubmission.id == submission_id)
         .values(status="rejected", admin_notes=req.admin_notes, reviewed_by=admin.id)
     )
+
+    # Create notification for user
+    notification = Notification(
+        user_id=sub.user_id,
+        type="skill_rejected",
+        title=f"技能 '{sub.skill_name}' 审核未通过",
+        content=f"很遗憾，您的技能未通过审核。{req.admin_notes or '请查看审核详情并修改后重新提交。'}",
+        link="/skills?tab=curated",
+    )
+    db.add(notification)
+
     await db.commit()
     return {"ok": True}
