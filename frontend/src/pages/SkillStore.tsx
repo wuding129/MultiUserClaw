@@ -585,40 +585,42 @@ export default function SkillStore() {
                           <span className="text-xs text-accent-yellow">已禁用</span>
                         )}
                       </div>
-                      {/* Submit to curated */}
-                      {showSubmitFromInstalled === skill.name ? (
-                        <div className="mt-3 pt-3 border-t border-dark-border/50 space-y-2">
-                          <textarea
-                            value={submitFromInstalledDesc}
-                            onChange={e => setSubmitFromInstalledDesc(e.target.value)}
-                            placeholder="简要描述这个技能的功能..."
-                            rows={2}
-                            className="w-full rounded-lg border border-dark-border bg-dark-bg px-2 py-1.5 text-xs text-dark-text outline-none focus:border-accent-blue resize-none"
-                          />
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleSubmitFromInstalled(skill)}
-                              disabled={submittingSkill === skill.name}
-                              className="flex-1 rounded bg-accent-blue/10 text-accent-blue text-xs py-1.5 hover:bg-accent-blue/20 disabled:opacity-50"
-                            >
-                              {submittingSkill === skill.name ? '提交中...' : '确认提交'}
-                            </button>
-                            <button
-                              onClick={() => { setShowSubmitFromInstalled(null); setSubmitFromInstalledDesc('') }}
-                              className="flex-1 rounded bg-dark-border/30 text-dark-text-secondary text-xs py-1.5 hover:bg-dark-border/50"
-                            >
-                              取消
-                            </button>
+                      {/* Submit to curated - hide if already submitted or approved */}
+                      {!submissions.some(s => s.skill_name === skill.name && ['pending', 'ai_reviewed', 'approved'].includes(s.status)) && (
+                        showSubmitFromInstalled === skill.name ? (
+                          <div className="mt-3 pt-3 border-t border-dark-border/50 space-y-2">
+                            <textarea
+                              value={submitFromInstalledDesc}
+                              onChange={e => setSubmitFromInstalledDesc(e.target.value)}
+                              placeholder="简要描述这个技能的功能..."
+                              rows={2}
+                              className="w-full rounded-lg border border-dark-border bg-dark-bg px-2 py-1.5 text-xs text-dark-text outline-none focus:border-accent-blue resize-none"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleSubmitFromInstalled(skill)}
+                                disabled={submittingSkill === skill.name}
+                                className="flex-1 rounded bg-accent-blue/10 text-accent-blue text-xs py-1.5 hover:bg-accent-blue/20 disabled:opacity-50"
+                              >
+                                {submittingSkill === skill.name ? '提交中...' : '确认提交'}
+                              </button>
+                              <button
+                                onClick={() => { setShowSubmitFromInstalled(null); setSubmitFromInstalledDesc('') }}
+                                className="flex-1 rounded bg-dark-border/30 text-dark-text-secondary text-xs py-1.5 hover:bg-dark-border/50"
+                              >
+                                取消
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setShowSubmitFromInstalled(skill.name)}
-                          className="mt-3 flex items-center gap-1 text-xs text-accent-blue hover:text-accent-blue/80"
-                        >
-                          <Send size={12} />
-                          提交到精选
-                        </button>
+                        ) : (
+                          <button
+                            onClick={() => setShowSubmitFromInstalled(skill.name)}
+                            className="mt-3 flex items-center gap-1 text-xs text-accent-blue hover:text-accent-blue/80"
+                          >
+                            <Send size={12} />
+                            提交到精选
+                          </button>
+                        )
                       )}
                     </div>
                   )
