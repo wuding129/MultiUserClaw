@@ -116,46 +116,50 @@ After obtaining the SKILL.md content, analyze it against the criteria above and 
 
 As a skill-reviewer agent, you continuously poll for review tasks and process them:
 
-### Step 1: Poll for Pending Tasks
+### Step 1: Poll for Pending Tasks (打卡 - Claim)
 
 ```bash
 # Get the next pending review task
 curl -s http://localhost:18080/api/reviews/pending
 ```
 
+**打卡机制**: 当 agent 获取任务时，系统会：
+- 将任务状态从 `pending` 改为 `assigned`
+- 记录 `assigned_agent`: 哪个 agent 领取的
+- 记录 `assigned_at`: 领取时间
+
+如果 30 分钟内没有完成，任务会自动释放，其他 agent 可以重新领取。
+
 Response when task available:
 ```json
 {
-  "task_id": "uuid-string",
-  "submission_id": "submission-uuid",
-  "source_url": "https://github.com/user/skill-repo",
-  "file_path": "/path/to/skill.zip",
-  "submitted_by": "user-id"
+  "task": {
+    "id": "uuid-string",
+    "submission_id": "submission-uuid",
+    "skill_content": "SKILL.md content...",
+    "assigned_at": "2024-01-15T10:30:00Z"
+  }
 }
 ```
 
 Response when no tasks:
 ```json
-{"message": "No pending review tasks"}
+{"task": null}
 ```
 
-### Step 2: Download and Review the Skill
+### Step 2: Review the Skill Content
 
-If `file_path` is provided (uploaded ZIP):
-```bash
-# Unzip and review
-unzip -o /path/to/skill.zip -d /tmp/review-skill
-find /tmp/review-skill -name "SKILL.md" -exec cat {} \;
-```
+The `skill_content` field already contains the SKILL.md content, so you can directly analyze it:
 
-If `source_url` is provided:
 ```bash
-# Clone and review
-git clone <source_url> /tmp/review-skill
+# skill_content is provided in the task response
+echo "$skill_content" > /tmp/review-skill/SKILL.md
 cat /tmp/review-skill/SKILL.md
 ```
 
-### Step 3: Analyze and Submit Review Result
+If you need to check additional files in the ZIP, the submission's `file_path` is available via the submission API.
+
+### Step 3: Analyze and Submit Review Result (打卡 - Complete)
 
 After analyzing the skill, submit your review:
 
@@ -172,6 +176,11 @@ curl -s -X POST http://localhost:18080/api/reviews/result \
     }
   }'
 ```
+
+**打卡机制**: 当提交结果时，系统会：
+- 验证该任务是否由当前 agent 领取（防止冲突）
+- 将任务状态改为 `completed` 或 `failed`
+- 更新 submission 的 AI 审核结果
 
 If review failed (e.g., cannot unzip):
 ```bash

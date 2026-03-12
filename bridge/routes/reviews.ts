@@ -32,9 +32,11 @@ export function reviewRoutes(config: BridgeConfig): Router {
     });
   }
 
+  const AGENT_ID = "skill-reviewer";
+
   // GET /api/reviews/pending - Get next pending review task
   router.get("/reviews/pending", asyncHandler(async (_req, res) => {
-    const resp = await gatewayFetch("/api/skills/reviews/pending");
+    const resp = await gatewayFetch(`/api/skills/reviews/pending?agent_id=${AGENT_ID}`);
     const data = await resp.json();
     if (!resp.ok) {
       res.status(resp.status).json(data);
@@ -49,7 +51,7 @@ export function reviewRoutes(config: BridgeConfig): Router {
 
     const resp = await gatewayFetch("/api/skills/reviews/result", {
       method: "POST",
-      body: JSON.stringify({ task_id, review_result, error }),
+      body: JSON.stringify({ task_id, agent_id: AGENT_ID, review_result, error }),
     });
 
     const data = await resp.json();

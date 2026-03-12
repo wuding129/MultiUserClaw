@@ -377,15 +377,30 @@ async def my_submissions(
 # Review Task API (for skill-reviewer agent)
 # ---------------------------------------------------------------------------
 
+REVIEW_TIMEOUT_MINUTES = 30  # Task reassigned if not completed in 30 min
+
+
 @user_router.get("/reviews/pending")
 async def get_pending_review_task(
+    agent_id: str = "skill-reviewer",
     db: AsyncSession = Depends(get_db),
 ):
-    """Get the next pending review task (for agent to claim)."""
-    # Get a pending task not assigned to any agent
+    """Get the next pending review task (for agent to claim).
+
+    Agent identifies itself via agent_id param. Tasks assigned but not completed
+    within REVIEW_TIMEOUT_MINUTES are automatically reassigned.
+    """
+    from datetime import datetime, timedelta
+
+    cutoff = datetime.utcnow() - timedelta(minutes=REVIEW_TIMEOUT_MINUTES)
+
+    # Find task: pending OR assigned but timed out
     task = (await db.execute(
         select(ReviewTask)
-        .where(ReviewTask.status == "pending")
+        .where(
+            (ReviewTask.status == "pending") |
+            ((ReviewTask.status == "assigned") & (ReviewTask.assigned_at < cutoff))
+        )
         .order_by(ReviewTask.created_at.asc())
         .limit(1)
     )).scalar_one_or_none()
@@ -393,8 +408,10 @@ async def get_pending_review_task(
     if not task:
         return {"task": None}
 
-    # Assign to caller (agent will identify itself via header or we can add auth)
+    # Assign to this agent (打卡：记录谁领取的，什么时候领取的)
     task.status = "assigned"
+    task.assigned_agent = agent_id
+    task.assigned_at = datetime.utcnow()
     await db.commit()
     await db.refresh(task)
 
@@ -403,12 +420,14 @@ async def get_pending_review_task(
             "id": task.id,
             "submission_id": task.submission_id,
             "skill_content": task.skill_content,
+            "assigned_at": task.assigned_at.isoformat(),
         }
     }
 
 
 class SubmitReviewResultRequest(BaseModel):
     task_id: str
+    agent_id: str = "skill-reviewer"  # Agent identifier for verification
     review_result: str
     error: str | None = None
 
@@ -418,7 +437,10 @@ async def submit_review_result(
     req: SubmitReviewResultRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Submit review result from the agent."""
+    """Submit review result from the agent.
+
+    Verifies the agent is the one assigned to this task (打卡：完成审核).
+    """
     task = (await db.execute(
         select(ReviewTask).where(ReviewTask.id == req.task_id)
     )).scalar_one_or_none()
@@ -426,6 +448,14 @@ async def submit_review_result(
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    # Verify this agent owns the task (unless task has no assigned_agent - backward compat)
+    if task.assigned_agent and task.assigned_agent != req.agent_id:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Task assigned to {task.assigned_agent}, not {req.agent_id}"
+        )
+
+    # 打卡：完成审核
     if req.error:
         task.status = "failed"
         task.error = req.error
@@ -440,6 +470,7 @@ async def submit_review_result(
 
         if submission:
             submission.ai_review_result = req.review_result
+            submission.status = "ai_reviewed"  # Mark as AI reviewed, waiting for admin
 
     await db.commit()
 

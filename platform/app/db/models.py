@@ -142,6 +142,7 @@ class ReviewTask(Base):
     submission_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)  # links to SkillSubmission
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")  # pending | assigned | completed | failed
     assigned_agent: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # agent id that claimed this task
+    assigned_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # when task was claimed
     skill_content: Mapped[str] = mapped_column(Text, nullable=False)  # SKILL.md content
     review_result: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # JSON review result
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
