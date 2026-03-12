@@ -463,7 +463,6 @@ async def submit_review_result(
         )
 
     # 打卡：完成审核
-    notification = None
     if req.error:
         task.status = "failed"
         task.error = req.error
@@ -479,37 +478,7 @@ async def submit_review_result(
         if submission:
             submission.ai_review_result = req.review_result
             submission.status = "ai_reviewed"  # Mark as AI reviewed, waiting for admin
-
-            # Create notification for user
-            try:
-                import json
-                review_data = json.loads(req.review_result)
-                score = review_data.get("score", 0)
-                approved = review_data.get("approved", False)
-
-                if approved:
-                    title = f"技能 '{submission.skill_name}' AI审核通过"
-                    content = f"评分: {score}/100\n您的技能已通过AI自动审核，等待管理员最终审核。"
-                else:
-                    issues = review_data.get("issues", [])
-                    issue_summary = ""
-                    if issues:
-                        critical_count = sum(1 for i in issues if i.get("severity") == "critical")
-                        if critical_count > 0:
-                            issue_summary = f"发现 {critical_count} 个关键问题需修复。"
-                    title = f"技能 '{submission.skill_name}' AI审核未通过"
-                    content = f"评分: {score}/100\n{issue_summary}\n请查看审核详情并修改后重新提交。"
-
-                notification = Notification(
-                    user_id=submission.user_id,
-                    type="skill_ai_review",
-                    title=title,
-                    content=content,
-                    link=f"/skills?tab=curated",
-                )
-                db.add(notification)
-            except Exception as e:
-                print(f"[skill-review] Failed to create notification: {e}")
+            # Note: No notification sent for AI review, only admin review triggers notification
 
     await db.commit()
 
