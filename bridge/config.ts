@@ -13,6 +13,8 @@ export interface BridgeConfig {
   uploadsPath: string;
   sessionsPath: string;
   enableAutoReview: boolean; // 是否启用自动审核agent
+  enableOffice: boolean; // 是否启用办公室状态上报
+  officeInterval: number; // 状态上报间隔(毫秒)
 }
 
 export function loadConfig(): BridgeConfig {
@@ -27,6 +29,9 @@ export function loadConfig(): BridgeConfig {
   const sessionsPath = path.join(openclawHome, "sessions");
   // 默认不启用自动审核，需要管理员显式开启
   const enableAutoReview = process.env.BRIDGE_ENABLE_AUTO_REVIEW === "true";
+  // 办公室功能默认启用
+  const enableOffice = process.env.BRIDGE_ENABLE_OFFICE !== "false";
+  const officeInterval = parseInt(process.env.BRIDGE_OFFICE_INTERVAL || "2000", 10);
 
   return {
     proxyUrl,
@@ -39,6 +44,8 @@ export function loadConfig(): BridgeConfig {
     uploadsPath,
     sessionsPath,
     enableAutoReview,
+    enableOffice,
+    officeInterval,
   };
 }
 

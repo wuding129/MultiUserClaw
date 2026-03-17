@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8080
 
+    # Gateway internal URL for container-to-gateway communication
+    # In Docker, containers access gateway via service name
+    gateway_internal_url: str = "http://openclaw-gateway:8080"
+
     # Local dev: set to e.g. "http://127.0.0.1:18080" to skip Docker containers
     dev_openclaw_url: str = ""
 

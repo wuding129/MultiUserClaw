@@ -94,6 +94,9 @@ async def create_container(db: AsyncSession, user_id: str) -> Container:
                 "NANOBOT_PROXY__URL": f"http://gateway:8080/llm/v1",
                 "NANOBOT_PROXY__TOKEN": container_token,
                 "NANOBOT_AGENTS__DEFAULTS__MODEL": settings.default_model,
+                # Office status reporter configuration
+                "PLATFORM_GATEWAY_URL": settings.gateway_internal_url,
+                "NANOBOT_USER_ID": user_id,
             },
             mounts=[
                 docker.types.Mount("/root/.openclaw", data_vol, type="volume"),

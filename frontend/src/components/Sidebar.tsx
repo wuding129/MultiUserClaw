@@ -17,6 +17,7 @@ import {
   Settings,
   User,
   Shield,
+  Building2,
 } from 'lucide-react'
 
 
@@ -37,6 +38,7 @@ export default function Sidebar() {
       label: '概览',
       items: [
         { to: '/dashboard', icon: LayoutDashboard, label: '仪表盘' },
+        { to: '/office', icon: Building2, label: '办公室' },
       ],
     },
     {

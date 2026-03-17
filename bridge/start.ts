@@ -4,6 +4,7 @@ import path from "node:path";
 import { loadConfig, writeOpenclawConfig, type BridgeConfig } from "./config.js";
 import { BridgeGatewayClient } from "./gateway-client.js";
 import { createServer } from "./server.js";
+import { OfficeStatusReporter } from "./office/index.js";
 
 async function waitForGateway(url: string, maxWaitMs = 60_000): Promise<void> {
   const start = Date.now();
@@ -248,6 +249,21 @@ async function main(): Promise<void> {
   await client.start();
   console.log("[bridge] Connected to gateway");
 
+  // Start Office Status Reporter
+  let officeReporter: OfficeStatusReporter | null = null;
+  if (config.enableOffice) {
+    console.log("[bridge] Office status reporter: ENABLED");
+    // User ID comes from environment (set by Platform Gateway when starting container)
+    const userId = process.env.NANOBOT_USER_ID || "dev-user";
+    officeReporter = new OfficeStatusReporter(client, config, userId, {
+      intervalMs: config.officeInterval,
+    });
+    officeReporter.start();
+  } else {
+    console.log("[bridge] Office status reporter: DISABLED");
+    console.log("[bridge] Set BRIDGE_ENABLE_OFFICE=true to enable office visualization");
+  }
+
   // Configure skill review mode
   if (config.enableAutoReview) {
     console.log("[bridge] Auto-review mode: ENABLED");
@@ -286,6 +302,7 @@ async function main(): Promise<void> {
   // Graceful shutdown
   const shutdown = () => {
     console.log("[bridge] Shutting down...");
+    officeReporter?.stop();
     client.stop();
     gatewayProc.kill("SIGTERM");
     server.close();

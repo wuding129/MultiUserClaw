@@ -18,6 +18,7 @@ import KnowledgeBase from './pages/KnowledgeBase'
 import SystemSettings from './pages/SystemSettings'
 import ApiAccess from './pages/ApiAccess'
 import Nodes from './pages/Nodes'
+import Office from './pages/Office'
 import { isLoggedIn, getMe } from './lib/api'
 import { useState, useEffect } from 'react'
 
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="admin-skills" element={<RequireAdmin><AdminSkills /></RequireAdmin>} />
         <Route path="nodes" element={<Nodes />} />
         <Route path="api" element={<ApiAccess />} />
+        <Route path="office" element={<Office />} />
         <Route path="settings" element={<RequireAdmin><SystemSettings /></RequireAdmin>} />
       </Route>
     </Routes>

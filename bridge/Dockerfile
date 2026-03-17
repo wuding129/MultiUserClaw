@@ -15,6 +15,7 @@ RUN npm install
 # Build bridge TypeScript
 COPY tsconfig.json ./
 COPY *.ts ./
+COPY office/ ./office/
 COPY routes/ ./routes/
 RUN npx tsc
 
